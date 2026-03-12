@@ -23,3 +23,11 @@
 * Major Changes: You MUST pause and ask for the user's approval before making major structural changes.
 * Approval Triggers: Ask for permission before installing new external libraries, changing the folder structure, or completely rewriting a core feature.
 * Always present a clear "Plan" of action for new features before writing the code.
+
+## 5. Tooling
+
+* Always use uv add <library> for installations.
+
+## 6. Architecture
+
+* Keep everything in app.py for now to minimize complexity.
