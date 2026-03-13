@@ -1,32 +1,93 @@
-import requests
+import os
+import typer
+import ccxt
+from dotenv import load_dotenv
+from google import genai
 
-def get_bitcoin_price():
-    # Define the URL for the CoinGecko API to fetch the current price of Bitcoin in US Dollars (USD)
-    coingecko_api_url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+# Load environment variables from the .env file
+load_dotenv()
+
+# Create the Typer app instance
+app = typer.Typer(help="Bitcoin AI CLI Tool")
+
+@app.command()
+def analyze():
+    """
+    Fetch and display the current ticker data for BTC/USDT from Binance.
+    """
+    try:
+        # Initialize a CCXT exchange instance for Binance
+        exchange = ccxt.binance()
+
+        # Fetch the current ticker data for BTC/USDT
+        ticker = exchange.fetch_ticker('BTC/USDT')
+
+        # Extract the relevant data: price, 24h volume, high, low
+        price = ticker.get('last')
+        volume = ticker.get('baseVolume')
+        high = ticker.get('high')
+        low = ticker.get('low')
+
+        # Print the raw data cleanly to the console
+        typer.secho("\n📊 BTC/USDT Market Data (Binance)", fg=typer.colors.CYAN, bold=True)
+        typer.secho("=" * 40, fg=typer.colors.CYAN)
+        typer.echo(f"Current Price : ${price:,.2f}" if price else "Current Price : N/A")
+        typer.echo(f"24h High      : ${high:,.2f}" if high else "24h High      : N/A")
+        typer.echo(f"24h Low       : ${low:,.2f}" if low else "24h Low       : N/A")
+        typer.echo(f"24h Volume    : {volume:,.2f} BTC" if volume else "24h Volume    : N/A")
+        typer.secho("=" * 40 + "\n", fg=typer.colors.CYAN)
+
+    except ccxt.NetworkError as e:
+        # Handle connection and network timeouts
+        typer.secho("Network Error: Could not connect to Binance. Please check your internet connection.", fg=typer.colors.RED)
+    except ccxt.ExchangeError as e:
+        # Handle API-specific errors
+        typer.secho(f"Exchange Error: Could not fetch data from Binance ({e}).", fg=typer.colors.RED)
+    except Exception as e:
+        # Catch any other unexpected errors
+        typer.secho(f"An unexpected error occurred: {e}", fg=typer.colors.RED)
+
+
+@app.command()
+def ask(question: str):
+    """
+    Ask the AI model a question and print the response.
+    """
+    # Ensure the Gemini API key is loaded securely
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
 
     try:
-        # Use the requests library to send a GET request to the API URL
-        response = requests.get(coingecko_api_url)
+        # Initialize the Google GenAI client
+        client = genai.Client(api_key=api_key)
 
-        # Check if the request was successful (status code 200)
-        # If it wasn't, this will raise an error that our except block will catch
-        response.raise_for_status()
+        # Define the specific Gemma model we are using
+        model_id = "gemma-3-12b-it"
 
-        # Convert the response data from JSON format into a Python dictionary
-        data = response.json()
+        typer.secho(f"Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
 
-        # Extract the current price of Bitcoin in USD from the dictionary
-        # The data looks like this: {'bitcoin': {'usd': 65000}}
-        bitcoin_current_price = data["bitcoin"]["usd"]
+        # Call the Google GenAI model to generate content
+        response = client.models.generate_content(
+            model=model_id,
+            contents=question
+        )
 
-        # Print the price in a clear, formatted string
-        print(f"The current price of Bitcoin is: ${bitcoin_current_price}")
+        # Print the response cleanly to the console
+        typer.secho("\n🤖 AI Response:", fg=typer.colors.MAGENTA, bold=True)
+        typer.secho("-" * 40, fg=typer.colors.MAGENTA)
+        typer.echo(response.text)
+        typer.secho("-" * 40 + "\n", fg=typer.colors.MAGENTA)
 
-    except requests.exceptions.RequestException as error:
-        # If any error occurs during the request (like no internet connection or the API is down),
-        # print a user-friendly error message instead of a complex traceback
-        print("Sorry, we couldn't fetch the current Bitcoin price at this time. Please check your internet connection or try again later.")
+    except genai.errors.APIError as e:
+        # Handle errors directly from the Gemini API
+        typer.secho(f"API Error: Failed to generate content. Please check your API key and connection. Details: {e}", fg=typer.colors.RED)
+    except Exception as e:
+        # Catch any other unexpected errors
+        typer.secho(f"An unexpected error occurred: {e}", fg=typer.colors.RED)
+
 
 if __name__ == "__main__":
-    # Call the function to get and print the Bitcoin price when the script is run directly
-    get_bitcoin_price()
+    # Run the Typer application
+    app()
