@@ -109,7 +109,7 @@ def analyze():
     try:
         # Initialize the Google GenAI client
         client = genai.Client(api_key=api_key)
-        model_id = "gemma-3-12b-it"
+        model_id = "gemini-2.5-flash"
 
         prompt = (
             f"You are an expert crypto market analyst. Analyze this multi-timeframe data for {symbol}.\n"
