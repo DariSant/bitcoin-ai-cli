@@ -185,7 +185,7 @@ def analyze():
 
 
         # --- Agent 3: Portfolio Manager (The Synthesizer) ---
-        typer.secho(f"Agent 3 (Portfolio Manager) Thinking... (Model: gemini-3.1-flash-lite)", fg=typer.colors.YELLOW)
+        typer.secho(f"Agent 3 (Portfolio Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)", fg=typer.colors.YELLOW)
 
         # Combine the parsed JSON dictionaries into a single payload
         payload = json.dumps({
@@ -205,7 +205,7 @@ def analyze():
         )
 
         agent3_response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
+            model="gemini-3.1-flash-lite-preview",
             contents=agent3_prompt
         )
 
