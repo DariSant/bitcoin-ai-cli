@@ -45,15 +45,31 @@ def fetch_and_analyze(exchange, symbol: str, timeframe: str) -> dict:
     # Calculate RSI Delta
     df['RSI_Delta'] = df['RSI_13'] - df['RSI_47']
 
+    # Calculate Volume Moving Average (VMA)
+    df['VMA_20'] = ta.sma(df['volume'], length=20)
+
+    # Calculate Volume Profile Point of Control (POC)
+    # Create 10 equal price bins based on the close column
+    bins = pd.cut(df['close'], bins=10)
+    # Group by bins and sum the volume for each bin
+    volume_by_bin = df.groupby(bins, observed=False)['volume'].sum()
+    # Find the bin with the maximum volume
+    max_volume_bin = volume_by_bin.idxmax()
+    # Extract the midpoint price of that highest-volume bin
+    poc_price = float(max_volume_bin.mid)
+
     # Check for NaNs on required indicators in the last row
     last_row = df.iloc[-1]
 
-    if pd.isna(last_row['EMA_144']) or pd.isna(last_row['RSI_13']) or pd.isna(last_row['RSI_47']):
-        raise ValueError(f"Insufficient candle data fetched to calculate the 144 EMA or RSIs for {timeframe} timeframe.")
+    if pd.isna(last_row['EMA_144']) or pd.isna(last_row['RSI_13']) or pd.isna(last_row['RSI_47']) or pd.isna(last_row['VMA_20']):
+        raise ValueError(f"Insufficient candle data fetched to calculate required technical and volume metrics for {timeframe} timeframe.")
 
     # Return rounded values for the latest row
     return {
         'price': round(float(last_row['close']), 2),
+        'volume': round(float(last_row['volume']), 2),
+        'vma_20': round(float(last_row['VMA_20']), 2),
+        'poc_price': round(poc_price, 2),
         'ema_34': round(float(last_row['EMA_34']), 2),
         'ema_89': round(float(last_row['EMA_89']), 2),
         'ema_144': round(float(last_row['EMA_144']), 2),
@@ -93,6 +109,8 @@ def analyze():
     # 4H Print
     typer.secho("📈 4H Macro Trend Metrics", fg=typer.colors.BLUE, bold=True)
     typer.echo(f"Current Price : ${data_4h['price']:,.2f}")
+    typer.echo(f"Volume / VMA (20) : {data_4h['volume']} / {data_4h['vma_20']}")
+    typer.echo(f"Volume Profile POC: ${data_4h['poc_price']}")
     typer.echo(f"EMAs (34,89,144) : {data_4h['ema_34']}, {data_4h['ema_89']}, {data_4h['ema_144']}")
     typer.echo(f"RSI (13,47)      : {data_4h['rsi_13']}, {data_4h['rsi_47']}")
     typer.echo(f"RSI Delta        : {data_4h['rsi_delta']}")
@@ -101,6 +119,8 @@ def analyze():
     # 15M Print
     typer.secho("📉 15m Micro Trend Metrics", fg=typer.colors.BLUE, bold=True)
     typer.echo(f"Current Price : ${data_15m['price']:,.2f}")
+    typer.echo(f"Volume / VMA (20) : {data_15m['volume']} / {data_15m['vma_20']}")
+    typer.echo(f"Volume Profile POC: ${data_15m['poc_price']}")
     typer.echo(f"EMAs (34,89,144) : {data_15m['ema_34']}, {data_15m['ema_89']}, {data_15m['ema_144']}")
     typer.echo(f"RSI (13,47)      : {data_15m['rsi_13']}, {data_15m['rsi_47']}")
     typer.echo(f"RSI Delta        : {data_15m['rsi_delta']}")
