@@ -6,6 +6,7 @@ import pandas as pd
 import pandas_ta as ta
 from dotenv import load_dotenv
 from google import genai
+from google.genai.types import Schema, Type
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -182,28 +183,77 @@ def analyze():
         # Initialize the Google GenAI client
         client = genai.Client(api_key=api_key)
 
-        # Set up the configuration for the first two agents to force structured output
-        json_config = {"response_mime_type": "application/json"}
+        # Define schemas for structured JSON output
 
+        agent1_schema = Schema(
+            type=Type.OBJECT,
+            properties={
+                "bias": Schema(type=Type.STRING, enum=["STRONGLY_BULLISH", "BULLISH", "NEUTRAL", "BEARISH", "STRONGLY_BEARISH"]),
+                "analysis": Schema(type=Type.STRING),
+                "confidence_score": Schema(type=Type.INTEGER),
+                "timeframe_alignment": Schema(type=Type.BOOLEAN),
+                "nearest_support": Schema(type=Type.NUMBER),
+                "nearest_resistance": Schema(type=Type.NUMBER),
+                "distance_to_144_ema_percent": Schema(type=Type.NUMBER),
+                "current_atr_14": Schema(type=Type.NUMBER)
+            },
+            required=["bias", "analysis", "confidence_score", "timeframe_alignment", "nearest_support", "nearest_resistance", "distance_to_144_ema_percent", "current_atr_14"]
+        )
+
+        agent2_schema = Schema(
+            type=Type.OBJECT,
+            properties={
+                "bias": Schema(type=Type.STRING, enum=["STRONGLY_BULLISH", "BULLISH", "NEUTRAL", "BEARISH", "STRONGLY_BEARISH"]),
+                "analysis": Schema(type=Type.STRING),
+                "confidence_score": Schema(type=Type.INTEGER),
+                "timeframe_alignment": Schema(type=Type.BOOLEAN),
+                "price_to_value_area_status": Schema(type=Type.STRING, enum=["INSIDE_VALUE", "BREAKING_ABOVE_VAH", "BREAKING_BELOW_VAL", "REJECTING_VAH", "REJECTING_VAL"]),
+                "distance_to_poc_percent": Schema(type=Type.NUMBER),
+                "volume_vs_20ema": Schema(type=Type.STRING, enum=["ABOVE_AVERAGE", "BELOW_AVERAGE"])
+            },
+            required=["bias", "analysis", "confidence_score", "timeframe_alignment", "price_to_value_area_status", "distance_to_poc_percent", "volume_vs_20ema"]
+        )
+
+        agent3_schema = Schema(
+            type=Type.OBJECT,
+            properties={
+                "symbol": Schema(type=Type.STRING),
+                "reasoning": Schema(type=Type.STRING),
+                "operative": Schema(type=Type.STRING, enum=["ENTER LONG", "ENTER SHORT", "SIT ON HANDS"]),
+                "order_type": Schema(type=Type.STRING, enum=["MARKET", "LIMIT"]),
+                "system_confidence_score": Schema(type=Type.INTEGER),
+                "risk_allocation_percent": Schema(type=Type.NUMBER),
+                "entry_price": Schema(type=Type.NUMBER),
+                "atr_multiplier": Schema(type=Type.NUMBER),
+                "risk_reward_ratio": Schema(type=Type.NUMBER),
+                "ttl_hours": Schema(type=Type.INTEGER)
+            },
+            required=["symbol", "reasoning", "operative", "order_type", "system_confidence_score", "risk_allocation_percent", "entry_price", "atr_multiplier", "risk_reward_ratio", "ttl_hours"]
+        )
+
+        # Set up the configuration for the first two agents to force structured output
+        agent1_config = {"response_mime_type": "application/json", "response_schema": agent1_schema}
+        agent2_config = {"response_mime_type": "application/json", "response_schema": agent2_schema}
+        agent3_config = {"response_mime_type": "application/json", "response_schema": agent3_schema}
 
 
         # --- Agent 1: Technical Analyst ---
         typer.secho(f"Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)", fg=typer.colors.YELLOW)
         agent1_prompt = (
             "You are a pure Technical Analyst. Analyze these EMAs and RSI momentum metrics. Do not consider volume. "
-            "Return a strict JSON object with three keys: bias (string: Bullish, Bearish, Neutral), "
-            "analysis (string: a highly dense, 2-sentence summary of the momentum/trend), "
-            "confidence_score (integer: 1-100)\n\n"
+            "Return a strict JSON object.\n\n"
             f"4H Data: Price: ${data_4h['price']}, EMA(34,89,144): [{data_4h['ema_34']}, {data_4h['ema_89']}, {data_4h['ema_144']}], "
+            f"Distance to 144 EMA: {data_4h['dist_144_percent']}%, ATR(14): ${data_4h['atr_14']}, "
             f"RSI(13,47): [{data_4h['rsi_13']}, {data_4h['rsi_47']}], RSI Delta: {data_4h['rsi_delta']}\n"
             f"15m Data: Price: ${data_15m['price']}, EMA(34,89,144): [{data_15m['ema_34']}, {data_15m['ema_89']}, {data_15m['ema_144']}], "
+            f"Distance to 144 EMA: {data_15m['dist_144_percent']}%, ATR(14): ${data_15m['atr_14']}, "
             f"RSI(13,47): [{data_15m['rsi_13']}, {data_15m['rsi_47']}], RSI Delta: {data_15m['rsi_delta']}"
         )
 
         agent1_response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=agent1_prompt,
-            config=json_config
+            config=agent1_config
         )
 
         try:
@@ -216,17 +266,17 @@ def analyze():
         typer.secho(f"Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-2.5-flash)", fg=typer.colors.YELLOW)
         agent2_prompt = (
             "You are a Liquidity and Volume Analyst. Analyze Volume vs VMA, and where Price sits relative to the Volume Profile POC. "
-            "Return a strict JSON object with three keys: bias (string: Bullish, Bearish, Neutral), "
-            "analysis (string: a highly dense, 2-sentence summary of the liquidity/support/resistance), "
-            "confidence_score (integer 1-100)\n\n"
-            f"4H Data: Price: ${data_4h['price']}, Volume: {data_4h['volume']}, VMA(20): {data_4h['vma_20']}, POC Price: ${data_4h['poc_price']}\n"
-            f"15m Data: Price: ${data_15m['price']}, Volume: {data_15m['volume']}, VMA(20): {data_15m['vma_20']}, POC Price: ${data_15m['poc_price']}"
+            "Return a strict JSON object.\n\n"
+            f"4H Data: Price: ${data_4h['price']}, Volume: {data_4h['volume']}, VMA(20): {data_4h['vma_20']}, POC Price: ${data_4h['poc_price']}, "
+            f"VAH: ${data_4h['vah']}, VAL: ${data_4h['val']}, VA Status: {data_4h['va_status']}, Distance to POC: {data_4h['dist_poc_percent']}%\n"
+            f"15m Data: Price: ${data_15m['price']}, Volume: {data_15m['volume']}, VMA(20): {data_15m['vma_20']}, POC Price: ${data_15m['poc_price']}, "
+            f"VAH: ${data_15m['vah']}, VAL: ${data_15m['val']}, VA Status: {data_15m['va_status']}, Distance to POC: {data_15m['dist_poc_percent']}%"
         )
 
         agent2_response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=agent2_prompt,
-            config=json_config
+            config=agent2_config
         )
 
         try:
@@ -247,24 +297,69 @@ def analyze():
         agent3_prompt = (
             "You are the Lead Portfolio Manager. Review the JSON reports from the Technical and Liquidity agents. "
             "You must use step-by-step reasoning to synthesize their findings, looking for confluence or divergence. "
-            "Format your final response EXACTLY as follows:\n\n"
-            "Reasoning: [2-3 sentences explaining your logic based on the agent reports. Look for confluence or conflicts.]\n"
-            "Operative: [ENTER LONG, ENTER SHORT, or SIT ON HANDS]\n"
-            "Confidence: [0-100%]\n"
-            "Invalidation (Stop Loss): [Specific price level where this thesis is proven wrong, usually based on the POC or a key EMA.]\n\n"
+            "If you decide the operative is SIT ON HANDS, you must set entry_price, risk_allocation_percent, atr_multiplier, and risk_reward_ratio to 0.\n\n"
+            f"Current Execution Price (15m Close): ${data_15m['price']}\n"
+            f"Current Volatility (15m ATR): ${data_15m['atr_14']}\n\n"
             f"Agent Reports:\n{payload}"
         )
 
         agent3_response = client.models.generate_content(
             model="gemini-3.1-flash-lite-preview",
-            contents=agent3_prompt
+            contents=agent3_prompt,
+            config=agent3_config
         )
 
-        # Print the Portfolio Manager's final response cleanly to the console
-        typer.secho("\n🤖 Portfolio Manager Directive:", fg=typer.colors.MAGENTA, bold=True)
+        try:
+            agent3_report = json.loads(agent3_response.text)
+        except json.JSONDecodeError:
+            raise RuntimeError("Failed to parse Agent 3 (Portfolio Manager) JSON output.")
+
+        # --- Handle "SIT ON HANDS" Edge Case ---
+        operative = agent3_report.get("operative", "SIT ON HANDS")
+        if operative == "SIT ON HANDS":
+            typer.secho("\n⚠️ ACTION: SIT ON HANDS", fg=typer.colors.YELLOW, bold=True)
+            typer.echo(f"📝 REASONING: {agent3_report.get('reasoning', 'No reasoning provided.')}")
+            typer.echo("🛑 Skipping execution math. Awaiting next candle.\n")
+            raise typer.Exit()
+
+        # --- Stop Loss and Take Profit Math ---
+        entry_price = agent3_report.get("entry_price", 0.0)
+        atr_multiplier = agent3_report.get("atr_multiplier", 0.0)
+        risk_reward_ratio = agent3_report.get("risk_reward_ratio", 0.0)
+        current_atr_14_15m = data_15m['atr_14']
+
+        if operative == "ENTER LONG":
+            stop_loss = entry_price - (current_atr_14_15m * atr_multiplier)
+            take_profit = entry_price + ((entry_price - stop_loss) * risk_reward_ratio)
+        elif operative == "ENTER SHORT":
+            stop_loss = entry_price + (current_atr_14_15m * atr_multiplier)
+            take_profit = entry_price - ((stop_loss - entry_price) * risk_reward_ratio)
+        else:
+            stop_loss = 0.0
+            take_profit = 0.0
+
+        # Append calculated values to the payload
+        agent3_report["calculated_stop_loss"] = round(stop_loss, 2)
+        agent3_report["calculated_take_profit"] = round(take_profit, 2)
+
+        # Print the Portfolio Manager's final calculated payload cleanly to the console
+        typer.secho("\n🤖 Portfolio Manager Execution Payload:", fg=typer.colors.MAGENTA, bold=True)
+        typer.secho("=" * 60, fg=typer.colors.MAGENTA)
+        typer.echo(f"Symbol            : {agent3_report.get('symbol')}")
+        typer.echo(f"Operative         : {agent3_report.get('operative')}")
+        typer.echo(f"Order Type        : {agent3_report.get('order_type')}")
+        typer.echo(f"Confidence        : {agent3_report.get('system_confidence_score')}%")
+        typer.echo(f"Risk Allocation   : {agent3_report.get('risk_allocation_percent')}%")
+        typer.echo(f"Entry Price       : ${agent3_report.get('entry_price'):,.2f}")
+        typer.echo(f"Stop Loss         : ${agent3_report.get('calculated_stop_loss'):,.2f}")
+        typer.echo(f"Take Profit       : ${agent3_report.get('calculated_take_profit'):,.2f}")
+        typer.echo(f"ATR Multiplier    : {agent3_report.get('atr_multiplier')}")
+        typer.echo(f"R/R Ratio         : {agent3_report.get('risk_reward_ratio')}")
+        typer.echo(f"TTL (Hours)       : {agent3_report.get('ttl_hours')}")
         typer.secho("-" * 60, fg=typer.colors.MAGENTA)
-        typer.echo(agent3_response.text.strip())
-        typer.secho("-" * 60 + "\n", fg=typer.colors.MAGENTA)
+        typer.echo("📝 Reasoning:")
+        typer.echo(agent3_report.get('reasoning'))
+        typer.secho("=" * 60 + "\n", fg=typer.colors.MAGENTA)
 
     except genai.errors.APIError as e:
         typer.secho(f"API Error: Failed to generate content. Please check your API key and connection. Details: {e}", fg=typer.colors.RED)
