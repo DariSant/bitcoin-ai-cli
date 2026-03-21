@@ -297,6 +297,8 @@ def analyze():
         agent3_prompt = (
             "You are the Lead Portfolio Manager. Review the JSON reports from the Technical and Liquidity agents. "
             "You must use step-by-step reasoning to synthesize their findings, looking for confluence or divergence. "
+            "Return a strict JSON object. "
+            "Do NOT output specific price levels for stop loss or take profit. You must ONLY output the atr_multiplier and risk_reward_ratio. "
             "If you decide the operative is SIT ON HANDS, you must set entry_price, risk_allocation_percent, atr_multiplier, and risk_reward_ratio to 0.\n\n"
             f"Current Execution Price (15m Close): ${data_15m['price']}\n"
             f"Current Volatility (15m ATR): ${data_15m['atr_14']}\n\n"
