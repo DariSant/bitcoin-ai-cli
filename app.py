@@ -1,4 +1,5 @@
 import os
+import json
 import typer
 import ccxt
 import pandas as pd
@@ -131,30 +132,88 @@ def analyze():
         client = genai.Client(api_key=api_key)
         model_id = "gemini-2.5-flash"
 
-        prompt = (
-            f"You are an expert crypto market analyst. Analyze this multi-timeframe data for {symbol}.\n"
-            f"4H MACRO TREND: Price: ${data_4h['price']}, EMA(34,89,144): [{data_4h['ema_34']}, {data_4h['ema_89']}, {data_4h['ema_144']}], "
-            f"RSI(13,47): [{data_4h['rsi_13']}, {data_4h['rsi_47']}], RSI Delta: {data_4h['rsi_delta']}.\n"
-            f"15M MICRO TREND: Price: ${data_15m['price']}, EMA(34,89,144): [{data_15m['ema_34']}, {data_15m['ema_89']}, {data_15m['ema_144']}], "
-            f"RSI(13,47): [{data_15m['rsi_13']}, {data_15m['rsi_47']}], RSI Delta: {data_15m['rsi_delta']}.\n"
-            "Based strictly on these Fibonacci EMAs and Dual-RSI momentum metrics, provide a professional, highly concise 3-sentence analysis: "
-            "1 sentence on the macro 4H trend, 1 sentence on the micro 15m momentum, and 1 concluding sentence with an actionable bias "
-            "(e.g., bullish continuation, bearish divergence, no clear trend). At the end of the inference include a trading set up (long/short/no action) "
-            "with a confidence score (1-100%)."
+        # Set up the configuration for the first two agents to force structured output
+        json_config = {"response_mime_type": "application/json"}
+
+
+
+        # --- Agent 1: Technical Analyst ---
+        typer.secho(f"Agent 1 (Technical Analyst) Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
+        agent1_prompt = (
+            "You are a pure Technical Analyst. Analyze these EMAs and RSI momentum metrics. Do not consider volume. "
+            "Return a strict JSON object with three keys: bias (string: Bullish, Bearish, Neutral), "
+            "analysis (string: a highly dense, 2-sentence summary of the momentum/trend), "
+            "confidence_score (integer: 1-100)\n\n"
+            f"4H Data: Price: ${data_4h['price']}, EMA(34,89,144): [{data_4h['ema_34']}, {data_4h['ema_89']}, {data_4h['ema_144']}], "
+            f"RSI(13,47): [{data_4h['rsi_13']}, {data_4h['rsi_47']}], RSI Delta: {data_4h['rsi_delta']}\n"
+            f"15m Data: Price: ${data_15m['price']}, EMA(34,89,144): [{data_15m['ema_34']}, {data_15m['ema_89']}, {data_15m['ema_144']}], "
+            f"RSI(13,47): [{data_15m['rsi_13']}, {data_15m['rsi_47']}], RSI Delta: {data_15m['rsi_delta']}"
         )
 
-        typer.secho(f"Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
-
-        # Call the Google GenAI model to generate content
-        response = client.models.generate_content(
+        agent1_response = client.models.generate_content(
             model=model_id,
-            contents=prompt
+            contents=agent1_prompt,
+            config=json_config
         )
 
-        # Print the response cleanly to the console
-        typer.secho("\n🤖 AI Market Analysis:", fg=typer.colors.MAGENTA, bold=True)
+        try:
+            agent1_report = json.loads(agent1_response.text)
+        except json.JSONDecodeError:
+            raise RuntimeError("Failed to parse Agent 1 (Technical) JSON output.")
+
+
+        # --- Agent 2: Liquidity/Volume Analyst ---
+        typer.secho(f"Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
+        agent2_prompt = (
+            "You are a Liquidity and Volume Analyst. Analyze Volume vs VMA, and where Price sits relative to the Volume Profile POC. "
+            "Return a strict JSON object with three keys: bias (string: Bullish, Bearish, Neutral), "
+            "analysis (string: a highly dense, 2-sentence summary of the liquidity/support/resistance), "
+            "confidence_score (integer 1-100)\n\n"
+            f"4H Data: Price: ${data_4h['price']}, Volume: {data_4h['volume']}, VMA(20): {data_4h['vma_20']}, POC Price: ${data_4h['poc_price']}\n"
+            f"15m Data: Price: ${data_15m['price']}, Volume: {data_15m['volume']}, VMA(20): {data_15m['vma_20']}, POC Price: ${data_15m['poc_price']}"
+        )
+
+        agent2_response = client.models.generate_content(
+            model=model_id,
+            contents=agent2_prompt,
+            config=json_config
+        )
+
+        try:
+            agent2_report = json.loads(agent2_response.text)
+        except json.JSONDecodeError:
+            raise RuntimeError("Failed to parse Agent 2 (Volume) JSON output.")
+
+
+        # --- Agent 3: Portfolio Manager (The Synthesizer) ---
+        typer.secho(f"Agent 3 (Portfolio Manager) Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
+
+        # Combine the parsed JSON dictionaries into a single payload
+        payload = json.dumps({
+            "technical_agent": agent1_report,
+            "volume_agent": agent2_report
+        }, indent=2)
+
+        agent3_prompt = (
+            "You are the Lead Portfolio Manager. Review the JSON reports from the Technical and Liquidity agents. "
+            "You must use step-by-step reasoning to synthesize their findings, looking for confluence or divergence. "
+            "Format your final response EXACTLY as follows:\n\n"
+            "Reasoning: [2-3 sentences explaining your logic based on the agent reports. Look for confluence or conflicts.]\n"
+            "Operative: [ENTER LONG, ENTER SHORT, or SIT ON HANDS]\n"
+            "Confidence: [0-100%]\n"
+            "Invalidation (Stop Loss): [Specific price level where this thesis is proven wrong, usually based on the POC or a key EMA.]\n\n"
+            f"Agent Reports:\n{payload}"
+        )
+
+        agent3_response = client.models.generate_content(
+            model=model_id,
+            contents=agent3_prompt
+        )
+
+        # Print the Portfolio Manager's final response cleanly to the console
+        typer.secho("\n🤖 Portfolio Manager Directive:", fg=typer.colors.MAGENTA, bold=True)
         typer.secho("-" * 60, fg=typer.colors.MAGENTA)
-        typer.echo(response.text)
+        typer.echo(agent3_response.text.strip())
         typer.secho("-" * 60 + "\n", fg=typer.colors.MAGENTA)
 
     except genai.errors.APIError as e:
