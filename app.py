@@ -130,7 +130,6 @@ def analyze():
     try:
         # Initialize the Google GenAI client
         client = genai.Client(api_key=api_key)
-        model_id = "gemini-2.5-flash"
 
         # Set up the configuration for the first two agents to force structured output
         json_config = {"response_mime_type": "application/json"}
@@ -138,7 +137,7 @@ def analyze():
 
 
         # --- Agent 1: Technical Analyst ---
-        typer.secho(f"Agent 1 (Technical Analyst) Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
+        typer.secho(f"Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)", fg=typer.colors.YELLOW)
         agent1_prompt = (
             "You are a pure Technical Analyst. Analyze these EMAs and RSI momentum metrics. Do not consider volume. "
             "Return a strict JSON object with three keys: bias (string: Bullish, Bearish, Neutral), "
@@ -151,7 +150,7 @@ def analyze():
         )
 
         agent1_response = client.models.generate_content(
-            model=model_id,
+            model="gemini-2.5-flash",
             contents=agent1_prompt,
             config=json_config
         )
@@ -163,7 +162,7 @@ def analyze():
 
 
         # --- Agent 2: Liquidity/Volume Analyst ---
-        typer.secho(f"Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
+        typer.secho(f"Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-2.5-flash)", fg=typer.colors.YELLOW)
         agent2_prompt = (
             "You are a Liquidity and Volume Analyst. Analyze Volume vs VMA, and where Price sits relative to the Volume Profile POC. "
             "Return a strict JSON object with three keys: bias (string: Bullish, Bearish, Neutral), "
@@ -174,7 +173,7 @@ def analyze():
         )
 
         agent2_response = client.models.generate_content(
-            model=model_id,
+            model="gemini-2.5-flash",
             contents=agent2_prompt,
             config=json_config
         )
@@ -186,7 +185,7 @@ def analyze():
 
 
         # --- Agent 3: Portfolio Manager (The Synthesizer) ---
-        typer.secho(f"Agent 3 (Portfolio Manager) Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
+        typer.secho(f"Agent 3 (Portfolio Manager) Thinking... (Model: gemini-3.1-flash-lite)", fg=typer.colors.YELLOW)
 
         # Combine the parsed JSON dictionaries into a single payload
         payload = json.dumps({
@@ -206,7 +205,7 @@ def analyze():
         )
 
         agent3_response = client.models.generate_content(
-            model=model_id,
+            model="gemini-3.1-flash-lite",
             contents=agent3_prompt
         )
 
