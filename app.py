@@ -374,6 +374,9 @@ def analyze():
         typer.echo(f"TTL: {final_directive['ttl_hours']} Hours")
         typer.secho("-" * 60 + "\n", fg=typer.colors.MAGENTA)
 
+    except typer.Exit:
+        # Re-raise Typer's Exit exception so the CLI can exit gracefully (e.g., during "SIT ON HANDS")
+        raise
     except genai.errors.APIError as e:
         typer.secho(f"API Error: Failed to generate content. Please check your API key and connection. Details: {e}", fg=typer.colors.RED)
     except Exception as e:
