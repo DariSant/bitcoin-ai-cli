@@ -6,7 +6,7 @@ import pandas as pd
 import pandas_ta as ta
 from dotenv import load_dotenv
 from google import genai
-from google.genai.types import Schema, Type
+import typing
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -184,80 +184,74 @@ def analyze():
         client = genai.Client(api_key=api_key)
 
         # Define schemas for structured JSON output
+        class Agent1Schema(typing.TypedDict):
+            bias: str
+            analysis: str
+            confidence_score: int
+            timeframe_alignment: bool
+            nearest_support: float
+            nearest_resistance: float
+            distance_to_144_ema_percent: float
+            current_atr_14: float
 
-        agent1_schema = Schema(
-            type=Type.OBJECT,
-            properties={
-                "bias": Schema(type=Type.STRING, enum=["STRONGLY_BULLISH", "BULLISH", "NEUTRAL", "BEARISH", "STRONGLY_BEARISH"]),
-                "analysis": Schema(type=Type.STRING),
-                "confidence_score": Schema(type=Type.INTEGER),
-                "timeframe_alignment": Schema(type=Type.BOOLEAN),
-                "nearest_support": Schema(type=Type.NUMBER),
-                "nearest_resistance": Schema(type=Type.NUMBER),
-                "distance_to_144_ema_percent": Schema(type=Type.NUMBER),
-                "current_atr_14": Schema(type=Type.NUMBER)
-            },
-            required=["bias", "analysis", "confidence_score", "timeframe_alignment", "nearest_support", "nearest_resistance", "distance_to_144_ema_percent", "current_atr_14"]
-        )
+        class Agent2Schema(typing.TypedDict):
+            bias: str
+            analysis: str
+            confidence_score: int
+            timeframe_alignment: bool
+            price_to_value_area_status: str
+            distance_to_poc_percent: float
+            volume_vs_20ema: str
 
-        agent2_schema = Schema(
-            type=Type.OBJECT,
-            properties={
-                "bias": Schema(type=Type.STRING, enum=["STRONGLY_BULLISH", "BULLISH", "NEUTRAL", "BEARISH", "STRONGLY_BEARISH"]),
-                "analysis": Schema(type=Type.STRING),
-                "confidence_score": Schema(type=Type.INTEGER),
-                "timeframe_alignment": Schema(type=Type.BOOLEAN),
-                "price_to_value_area_status": Schema(type=Type.STRING, enum=["INSIDE_VALUE", "BREAKING_ABOVE_VAH", "BREAKING_BELOW_VAL", "REJECTING_VAH", "REJECTING_VAL"]),
-                "distance_to_poc_percent": Schema(type=Type.NUMBER),
-                "volume_vs_20ema": Schema(type=Type.STRING, enum=["ABOVE_AVERAGE", "BELOW_AVERAGE"])
-            },
-            required=["bias", "analysis", "confidence_score", "timeframe_alignment", "price_to_value_area_status", "distance_to_poc_percent", "volume_vs_20ema"]
-        )
-
-        agent3_schema = Schema(
-            type=Type.OBJECT,
-            properties={
-                "symbol": Schema(type=Type.STRING),
-                "reasoning": Schema(type=Type.STRING),
-                "operative": Schema(type=Type.STRING, enum=["ENTER LONG", "ENTER SHORT", "SIT ON HANDS"]),
-                "order_type": Schema(type=Type.STRING, enum=["MARKET", "LIMIT"]),
-                "system_confidence_score": Schema(type=Type.INTEGER),
-                "risk_allocation_percent": Schema(type=Type.NUMBER),
-                "entry_price": Schema(type=Type.NUMBER),
-                "atr_multiplier": Schema(type=Type.NUMBER),
-                "risk_reward_ratio": Schema(type=Type.NUMBER),
-                "ttl_hours": Schema(type=Type.INTEGER)
-            },
-            required=["symbol", "reasoning", "operative", "order_type", "system_confidence_score", "risk_allocation_percent", "entry_price", "atr_multiplier", "risk_reward_ratio", "ttl_hours"]
-        )
-
-        # Set up the configuration for the first two agents to force structured output
-        agent1_config = {"response_mime_type": "application/json", "response_schema": agent1_schema}
-        agent2_config = {"response_mime_type": "application/json", "response_schema": agent2_schema}
-        agent3_config = {"response_mime_type": "application/json", "response_schema": agent3_schema}
+        class Agent3Schema(typing.TypedDict):
+            symbol: str
+            reasoning: str
+            operative: str
+            order_type: str
+            system_confidence_score: int
+            risk_allocation_percent: float
+            entry_price: float
+            atr_multiplier: float
+            risk_reward_ratio: float
+            ttl_hours: int
 
 
         # --- Agent 1: Technical Analyst ---
         typer.secho(f"Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)", fg=typer.colors.YELLOW)
         agent1_prompt = (
-            "You are a pure Technical Analyst. Analyze these EMAs and RSI momentum metrics. Do not consider volume. "
-            "Return a strict JSON object.\n\n"
-            f"4H Data: Price: ${data_4h['price']}, EMA(34,89,144): [{data_4h['ema_34']}, {data_4h['ema_89']}, {data_4h['ema_144']}], "
-            f"Distance to 144 EMA: {data_4h['dist_144_percent']}%, ATR(14): ${data_4h['atr_14']}, "
-            f"RSI(13,47): [{data_4h['rsi_13']}, {data_4h['rsi_47']}], RSI Delta: {data_4h['rsi_delta']}\n"
-            f"15m Data: Price: ${data_15m['price']}, EMA(34,89,144): [{data_15m['ema_34']}, {data_15m['ema_89']}, {data_15m['ema_144']}], "
-            f"Distance to 144 EMA: {data_15m['dist_144_percent']}%, ATR(14): ${data_15m['atr_14']}, "
-            f"RSI(13,47): [{data_15m['rsi_13']}, {data_15m['rsi_47']}], RSI Delta: {data_15m['rsi_delta']}"
+            "You are the Technical Analysis Agent for an algorithmic trading system. "
+            "Your objective is to analyze the 15m and 4H timeframes using EMAs, RSI momentum, and Volatility (ATR). Do not consider volume. "
+            "Your specific duties: \n"
+            "1. Determine the trend bias strictly based on price action and EMA alignment.\n"
+            "2. Identify the nearest major support and resistance levels based on the EMAs.\n"
+            "3. Evaluate timeframe alignment (Does the 15m trend agree with the 4H?).\n"
+            "4. Assess mean reversion risk using the distance to the 144 EMA.\n\n"
+            "Return a strict JSON object with EXACTLY these keys: \n"
+            "- bias (string: STRONGLY_BULLISH, BULLISH, NEUTRAL, BEARISH, or STRONGLY_BEARISH)\n"
+            "- analysis (string: max 3 sentences summarizing momentum, EMAs, and mean reversion risk)\n"
+            "- confidence_score (integer: 0-100)\n"
+            "- timeframe_alignment (boolean: true if 15m and 4H align, false otherwise)\n"
+            "- nearest_support (float: price level)\n"
+            "- nearest_resistance (float: price level)\n"
+            "- distance_to_144_ema_percent (float)\n"
+            "- current_atr_14 (float)\n\n"
+            f"--- MARKET DATA ---\n"
+            f"4H Data: Price: ${data_4h.get('price', 0)}, EMA(34,89,144): [{data_4h.get('ema_34', 0)}, {data_4h.get('ema_89', 0)}, {data_4h.get('ema_144', 0)}], "
+            f"RSI(13,47): [{data_4h.get('rsi_13', 0)}, {data_4h.get('rsi_47', 0)}], RSI Delta: {data_4h.get('rsi_delta', 0)}, "
+            f"ATR(14): {data_4h.get('atr_14', 0)}, Dist to 144 EMA: {data_4h.get('dist_144_percent', 0)}%\n"
+            f"15m Data: Price: ${data_15m.get('price', 0)}, EMA(34,89,144): [{data_15m.get('ema_34', 0)}, {data_15m.get('ema_89', 0)}, {data_15m.get('ema_144', 0)}], "
+            f"RSI(13,47): [{data_15m.get('rsi_13', 0)}, {data_15m.get('rsi_47', 0)}], RSI Delta: {data_15m.get('rsi_delta', 0)}, "
+            f"ATR(14): {data_15m.get('atr_14', 0)}, Dist to 144 EMA: {data_15m.get('dist_144_percent', 0)}%"
         )
 
         agent1_response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=agent1_prompt,
-            config=agent1_config
+            config={"response_mime_type": "application/json", "response_schema": Agent1Schema}
         )
 
         try:
-            agent1_report = json.loads(agent1_response.text)
+            tech_report = json.loads(agent1_response.text)
         except json.JSONDecodeError:
             raise RuntimeError("Failed to parse Agent 1 (Technical) JSON output.")
 
@@ -265,22 +259,38 @@ def analyze():
         # --- Agent 2: Liquidity/Volume Analyst ---
         typer.secho(f"Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-2.5-flash)", fg=typer.colors.YELLOW)
         agent2_prompt = (
-            "You are a Liquidity and Volume Analyst. Analyze Volume vs VMA, and where Price sits relative to the Volume Profile POC. "
-            "Return a strict JSON object.\n\n"
-            f"4H Data: Price: ${data_4h['price']}, Volume: {data_4h['volume']}, VMA(20): {data_4h['vma_20']}, POC Price: ${data_4h['poc_price']}, "
-            f"VAH: ${data_4h['vah']}, VAL: ${data_4h['val']}, VA Status: {data_4h['va_status']}, Distance to POC: {data_4h['dist_poc_percent']}%\n"
-            f"15m Data: Price: ${data_15m['price']}, Volume: {data_15m['volume']}, VMA(20): {data_15m['vma_20']}, POC Price: ${data_15m['poc_price']}, "
-            f"VAH: ${data_15m['vah']}, VAL: ${data_15m['val']}, VA Status: {data_15m['va_status']}, Distance to POC: {data_15m['dist_poc_percent']}%"
+            "You are the Volume Analysis Agent for an algorithmic trading system. "
+            "Your objective is to analyze the 15m and 4H timeframes using Total Volume, Volume Moving Average (VMA), and Volume Profile (POC, VAH, VAL). "
+            "Your specific duties: \n"
+            "1. Determine the volume bias based on momentum and Value Area positioning.\n"
+            "2. Analyze price interaction with the Value Area (e.g., inside value, rejecting boundaries, breaking out).\n"
+            "3. Evaluate timeframe alignment (Does the 15m volume profile agree with the 4H?).\n"
+            "4. Assess mean reversion risk using the percentage distance to the Point of Control (POC).\n\n"
+            "Return a strict JSON object with EXACTLY these keys: \n"
+            "- bias (string: STRONGLY_BULLISH, BULLISH, NEUTRAL, BEARISH, or STRONGLY_BEARISH)\n"
+            "- analysis (string: max 3 sentences summarizing volume strength, POC interaction, and breakout/mean-reversion conditions)\n"
+            "- confidence_score (integer: 0-100)\n"
+            "- timeframe_alignment (boolean: true if 15m and 4H align, false otherwise)\n"
+            "- price_to_value_area_status (string: INSIDE_VALUE, BREAKING_ABOVE_VAH, BREAKING_BELOW_VAL, REJECTING_VAH, or REJECTING_VAL)\n"
+            "- distance_to_poc_percent (float)\n"
+            "- volume_vs_20ema (string: ABOVE_AVERAGE or BELOW_AVERAGE)\n\n"
+            f"--- MARKET DATA ---\n"
+            f"4H Data: Price: ${data_4h.get('price', 0)}, Volume: {data_4h.get('volume', 0)} / VMA(20): {data_4h.get('vma_20', 0)}, "
+            f"POC: ${data_4h.get('poc_price', 0)}, VAL-VAH: ${data_4h.get('val', 0)} - ${data_4h.get('vah', 0)}, "
+            f"VA Status: {data_4h.get('va_status', 'UNKNOWN')}, Dist to POC: {data_4h.get('dist_poc_percent', 0)}%\n"
+            f"15m Data: Price: ${data_15m.get('price', 0)}, Volume: {data_15m.get('volume', 0)} / VMA(20): {data_15m.get('vma_20', 0)}, "
+            f"POC: ${data_15m.get('poc_price', 0)}, VAL-VAH: ${data_15m.get('val', 0)} - ${data_15m.get('vah', 0)}, "
+            f"VA Status: {data_15m.get('va_status', 'UNKNOWN')}, Dist to POC: {data_15m.get('dist_poc_percent', 0)}%"
         )
 
         agent2_response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=agent2_prompt,
-            config=agent2_config
+            config={"response_mime_type": "application/json", "response_schema": Agent2Schema}
         )
 
         try:
-            agent2_report = json.loads(agent2_response.text)
+            vol_report = json.loads(agent2_response.text)
         except json.JSONDecodeError:
             raise RuntimeError("Failed to parse Agent 2 (Volume) JSON output.")
 
@@ -288,80 +298,81 @@ def analyze():
         # --- Agent 3: Portfolio Manager (The Synthesizer) ---
         typer.secho(f"Agent 3 (Portfolio Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)", fg=typer.colors.YELLOW)
 
-        # Combine the parsed JSON dictionaries into a single payload
-        payload = json.dumps({
-            "technical_agent": agent1_report,
-            "volume_agent": agent2_report
-        }, indent=2)
-
         agent3_prompt = (
-            "You are the Lead Portfolio Manager. Review the JSON reports from the Technical and Liquidity agents. "
-            "You must use step-by-step reasoning to synthesize their findings, looking for confluence or divergence. "
-            "Return a strict JSON object. "
-            "Do NOT output specific price levels for stop loss or take profit. You must ONLY output the atr_multiplier and risk_reward_ratio. "
-            "If you decide the operative is SIT ON HANDS, you must set entry_price, risk_allocation_percent, atr_multiplier, and risk_reward_ratio to 0.\n\n"
-            f"Current Execution Price (15m Close): ${data_15m['price']}\n"
-            f"Current Volatility (15m ATR): ${data_15m['atr_14']}\n\n"
-            f"Agent Reports:\n{payload}"
+            "You are the Lead Portfolio Manager for an algorithmic trading system. "
+            f"Your objective is to synthesize the structured JSON reports from the Technical Agent and Volume Agent for {symbol}. "
+            "Your specific duties and strict constraints: \n"
+            "1. Synthesize the bias, timeframe alignment, and confidence scores from both sub-agents.\n"
+            "2. Determine the 'operative' (ENTER LONG, ENTER SHORT, or SIT ON HANDS). If the agents heavily conflict, timeframe alignment is false across the board, or volume is dead, you MUST output 'SIT ON HANDS'.\n"
+            "3. Determine the 'order_type' (MARKET, LIMIT, or NONE). Use MARKET for breakouts, LIMIT for mean-reversion pullbacks.\n"
+            "4. CRITICAL MATH RULE: Do NOT attempt to calculate exact price levels for Stop Loss or Take Profit. You must only output an 'atr_multiplier' (e.g., 1.5, 2.0) for the Stop Loss distance, and a 'risk_reward_ratio' (e.g., 2.0, 3.0) for the Take Profit distance.\n"
+            "5. SIT ON HANDS RULE: If your operative is 'SIT ON HANDS', you must set 'entry_price', 'risk_allocation_percent', 'atr_multiplier', 'risk_reward_ratio', and 'ttl_hours' to exactly 0. Set 'order_type' to 'NONE'.\n\n"
+            "Return a strict JSON object with EXACTLY these keys: \n"
+            "- symbol (string)\n"
+            "- reasoning (string: max 3 sentences explaining confluence/conflict and your decision)\n"
+            "- operative (string: ENTER LONG, ENTER SHORT, SIT ON HANDS)\n"
+            "- order_type (string: MARKET, LIMIT, NONE)\n"
+            "- system_confidence_score (integer: 0-100)\n"
+            "- risk_allocation_percent (float: 0.0 to 2.0)\n"
+            "- entry_price (float: current price for market, pullback target for limit. 0 if SIT ON HANDS)\n"
+            "- atr_multiplier (float: e.g., 1.5. 0 if SIT ON HANDS)\n"
+            "- risk_reward_ratio (float: e.g., 2.0. 0 if SIT ON HANDS)\n"
+            "- ttl_hours (integer: e.g., 12, 24, 48. 0 if SIT ON HANDS)\n\n"
+            f"--- SUB-AGENT REPORTS ---\n"
+            f"Technical Agent Report:\n{json.dumps(tech_report, indent=2)}\n\n"
+            f"Volume Agent Report:\n{json.dumps(vol_report, indent=2)}\n\n"
+            f"--- CURRENT 15m MARKET DATA (For Entry Context) ---\n"
+            f"Price: ${data_15m.get('price', 0)}, ATR(14): ${data_15m.get('atr_14', 0)}, POC: ${data_15m.get('poc_price', 0)}"
         )
 
         agent3_response = client.models.generate_content(
             model="gemini-3.1-flash-lite-preview",
             contents=agent3_prompt,
-            config=agent3_config
+            config={"response_mime_type": "application/json", "response_schema": Agent3Schema}
         )
 
         try:
-            agent3_report = json.loads(agent3_response.text)
+            final_directive = json.loads(agent3_response.text)
         except json.JSONDecodeError:
             raise RuntimeError("Failed to parse Agent 3 (Portfolio Manager) JSON output.")
 
         # --- Handle "SIT ON HANDS" Edge Case ---
-        operative = agent3_report.get("operative", "SIT ON HANDS")
+        operative = final_directive.get("operative", "SIT ON HANDS")
         if operative == "SIT ON HANDS":
             typer.secho("\n⚠️ ACTION: SIT ON HANDS", fg=typer.colors.YELLOW, bold=True)
-            typer.echo(f"📝 REASONING: {agent3_report.get('reasoning', 'No reasoning provided.')}")
+            typer.echo(f"📝 REASONING: {final_directive.get('reasoning', 'No reasoning provided.')}")
             typer.echo("🛑 Skipping execution math. Awaiting next candle.\n")
             raise typer.Exit()
 
         # --- Stop Loss and Take Profit Math ---
-        entry_price = agent3_report.get("entry_price", 0.0)
-        atr_multiplier = agent3_report.get("atr_multiplier", 0.0)
-        risk_reward_ratio = agent3_report.get("risk_reward_ratio", 0.0)
-        current_atr_14_15m = data_15m['atr_14']
+        take_profit = 0.0
+        stop_loss = 0.0
 
-        if operative == "ENTER LONG":
-            stop_loss = entry_price - (current_atr_14_15m * atr_multiplier)
-            take_profit = entry_price + ((entry_price - stop_loss) * risk_reward_ratio)
-        elif operative == "ENTER SHORT":
-            stop_loss = entry_price + (current_atr_14_15m * atr_multiplier)
-            take_profit = entry_price - ((stop_loss - entry_price) * risk_reward_ratio)
-        else:
-            stop_loss = 0.0
-            take_profit = 0.0
+        entry = final_directive['entry_price']
+        atr = data_15m.get('atr_14', 0)
+        stop_distance = atr * final_directive['atr_multiplier']
+        profit_distance = stop_distance * final_directive['risk_reward_ratio']
+
+        if final_directive['operative'] == "ENTER LONG":
+            stop_loss = entry - stop_distance
+            take_profit = entry + profit_distance
+        elif final_directive['operative'] == "ENTER SHORT":
+            stop_loss = entry + stop_distance
+            take_profit = entry - profit_distance
 
         # Append calculated values to the payload
-        agent3_report["calculated_stop_loss"] = round(stop_loss, 2)
-        agent3_report["calculated_take_profit"] = round(take_profit, 2)
+        final_directive['calculated_tp'] = round(take_profit, 2)
+        final_directive['calculated_sl'] = round(stop_loss, 2)
 
         # Print the Portfolio Manager's final calculated payload cleanly to the console
-        typer.secho("\n🤖 Portfolio Manager Execution Payload:", fg=typer.colors.MAGENTA, bold=True)
-        typer.secho("=" * 60, fg=typer.colors.MAGENTA)
-        typer.echo(f"Symbol            : {agent3_report.get('symbol')}")
-        typer.echo(f"Operative         : {agent3_report.get('operative')}")
-        typer.echo(f"Order Type        : {agent3_report.get('order_type')}")
-        typer.echo(f"Confidence        : {agent3_report.get('system_confidence_score')}%")
-        typer.echo(f"Risk Allocation   : {agent3_report.get('risk_allocation_percent')}%")
-        typer.echo(f"Entry Price       : ${agent3_report.get('entry_price'):,.2f}")
-        typer.echo(f"Stop Loss         : ${agent3_report.get('calculated_stop_loss'):,.2f}")
-        typer.echo(f"Take Profit       : ${agent3_report.get('calculated_take_profit'):,.2f}")
-        typer.echo(f"ATR Multiplier    : {agent3_report.get('atr_multiplier')}")
-        typer.echo(f"R/R Ratio         : {agent3_report.get('risk_reward_ratio')}")
-        typer.echo(f"TTL (Hours)       : {agent3_report.get('ttl_hours')}")
+        typer.secho("\n🤖 Portfolio Manager Directive:", fg=typer.colors.MAGENTA, bold=True)
         typer.secho("-" * 60, fg=typer.colors.MAGENTA)
-        typer.echo("📝 Reasoning:")
-        typer.echo(agent3_report.get('reasoning'))
-        typer.secho("=" * 60 + "\n", fg=typer.colors.MAGENTA)
+        typer.echo(f"Reasoning: {final_directive['reasoning']}")
+        typer.echo(f"Operative: {final_directive['operative']} ({final_directive['order_type']}) @ ${final_directive['entry_price']}")
+        typer.echo(f"Risk Allocation: {final_directive['risk_allocation_percent']}% | System Confidence: {final_directive['system_confidence_score']}%")
+        typer.echo(f"Target (TP): ${final_directive['calculated_tp']} | Invalidation (SL): ${final_directive['calculated_sl']}")
+        typer.echo(f"TTL: {final_directive['ttl_hours']} Hours")
+        typer.secho("-" * 60 + "\n", fg=typer.colors.MAGENTA)
 
     except genai.errors.APIError as e:
         typer.secho(f"API Error: Failed to generate content. Please check your API key and connection. Details: {e}", fg=typer.colors.RED)
