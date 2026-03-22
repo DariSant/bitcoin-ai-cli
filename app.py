@@ -7,9 +7,15 @@ import pandas_ta as ta
 from dotenv import load_dotenv
 from google import genai
 import typing
+from rich.console import Console
+from rich.panel import Panel
+from rich import box
 
 # Load environment variables from the .env file
 load_dotenv()
+
+# Instantiate the Rich console
+console = Console()
 
 # Create the Typer app instance
 app = typer.Typer(help="Bitcoin AI CLI Tool")
@@ -216,8 +222,15 @@ def analyze():
             ttl_hours: int
 
 
+        # --- Helper Function for Formatting ---
+        def get_bias_color(bias: str) -> str:
+            if bias in ("STRONGLY_BULLISH", "BULLISH"):
+                return "green"
+            elif bias in ("STRONGLY_BEARISH", "BEARISH"):
+                return "red"
+            return "yellow"
+
         # --- Agent 1: Technical Analyst ---
-        typer.secho(f"Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)", fg=typer.colors.YELLOW)
         agent1_prompt = (
             "You are the Technical Analysis Agent for an algorithmic trading system. "
             "Your objective is to analyze the 15m and 4H timeframes using EMAs, RSI momentum, and Volatility (ATR). Do not consider volume. "
@@ -244,20 +257,33 @@ def analyze():
             f"ATR(14): {data_15m.get('atr_14', 0)}, Dist to 144 EMA: {data_15m.get('dist_144_percent', 0)}%"
         )
 
-        agent1_response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=agent1_prompt,
-            config={"response_mime_type": "application/json", "response_schema": Agent1Schema}
-        )
+        with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
+            agent1_response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=agent1_prompt,
+                config={"response_mime_type": "application/json", "response_schema": Agent1Schema}
+            )
 
         try:
             tech_report = json.loads(agent1_response.text)
         except json.JSONDecodeError:
             raise RuntimeError("Failed to parse Agent 1 (Technical) JSON output.")
 
+        # Print Agent 1 Panel
+        tech_bias = tech_report.get('bias', 'NEUTRAL')
+        tech_color = get_bias_color(tech_bias)
+
+        tech_summary = (
+            f"Bias: [{tech_color} bold]{tech_bias}[/{tech_color} bold]\n"
+            f"Confidence: {tech_report.get('confidence_score', 0)}%\n"
+            f"Support: ${tech_report.get('nearest_support', 0)} | Resistance: ${tech_report.get('nearest_resistance', 0)}\n\n"
+            f"Analysis: {tech_report.get('analysis', '')}"
+        )
+
+        console.print(Panel(tech_summary, title="[Technical Analysis Agent]", border_style=tech_color, box=box.ROUNDED, expand=False))
+
 
         # --- Agent 2: Liquidity/Volume Analyst ---
-        typer.secho(f"Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-2.5-flash)", fg=typer.colors.YELLOW)
         agent2_prompt = (
             "You are the Volume Analysis Agent for an algorithmic trading system. "
             "Your objective is to analyze the 15m and 4H timeframes using Total Volume, Volume Moving Average (VMA), and Volume Profile (POC, VAH, VAL). "
@@ -283,21 +309,33 @@ def analyze():
             f"VA Status: {data_15m.get('va_status', 'UNKNOWN')}, Dist to POC: {data_15m.get('dist_poc_percent', 0)}%"
         )
 
-        agent2_response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=agent2_prompt,
-            config={"response_mime_type": "application/json", "response_schema": Agent2Schema}
-        )
+        with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
+            agent2_response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=agent2_prompt,
+                config={"response_mime_type": "application/json", "response_schema": Agent2Schema}
+            )
 
         try:
             vol_report = json.loads(agent2_response.text)
         except json.JSONDecodeError:
             raise RuntimeError("Failed to parse Agent 2 (Volume) JSON output.")
 
+        # Print Agent 2 Panel
+        vol_bias = vol_report.get('bias', 'NEUTRAL')
+        vol_color = get_bias_color(vol_bias)
+
+        vol_summary = (
+            f"Bias: [{vol_color} bold]{vol_bias}[/{vol_color} bold]\n"
+            f"Confidence: {vol_report.get('confidence_score', 0)}%\n"
+            f"VA Status: {vol_report.get('price_to_value_area_status', 'UNKNOWN')}\n\n"
+            f"Analysis: {vol_report.get('analysis', '')}"
+        )
+
+        console.print(Panel(vol_summary, title="[Volume & Liquidity Agent]", border_style=vol_color, box=box.ROUNDED, expand=False))
+
 
         # --- Agent 3: Portfolio Manager (The Synthesizer) ---
-        typer.secho(f"Agent 3 (Portfolio Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)", fg=typer.colors.YELLOW)
-
         agent3_prompt = (
             "You are the Lead Portfolio Manager for an algorithmic trading system. "
             f"Your objective is to synthesize the structured JSON reports from the Technical Agent and Volume Agent for {symbol}. "
@@ -325,11 +363,12 @@ def analyze():
             f"Price: ${data_15m.get('price', 0)}, ATR(14): ${data_15m.get('atr_14', 0)}, POC: ${data_15m.get('poc_price', 0)}"
         )
 
-        agent3_response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview",
-            contents=agent3_prompt,
-            config={"response_mime_type": "application/json", "response_schema": Agent3Schema}
-        )
+        with console.status("[bold cyan]Agent 3 (Portfolio Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
+            agent3_response = client.models.generate_content(
+                model="gemini-3.1-flash-lite-preview",
+                contents=agent3_prompt,
+                config={"response_mime_type": "application/json", "response_schema": Agent3Schema}
+            )
 
         try:
             final_directive = json.loads(agent3_response.text)
