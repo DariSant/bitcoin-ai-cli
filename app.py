@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from google import genai
 import typing
 from rich.console import Console
+from datetime import datetime
 from rich.panel import Panel
 from rich import box
 import logging
@@ -73,6 +74,39 @@ def get_bias_color(bias: str) -> str:
     elif bias in ("STRONGLY_BEARISH", "BEARISH"):
         return "red"
     return "yellow"
+
+def log_execution(command_name: str, symbol: str, data_4h: dict, data_15m: dict, agent1_report: dict = None, agent2_report: dict = None, agent3_report: dict = None) -> str:
+    """
+    Universally log execution state to a JSON footprint in output_alpha/.
+    """
+    now = datetime.now()
+    directory_path = f"output_alpha/{command_name}/{now.strftime('%Y-%m')}/"
+    os.makedirs(directory_path, exist_ok=True)
+
+    filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{symbol.replace('/', '')}.json"
+    filepath = os.path.join(directory_path, filename)
+
+    payload = {
+        "metadata": {
+            "timestamp": now.isoformat(),
+            "symbol": symbol,
+            "command_run": command_name
+        },
+        "raw_market_data": {
+            "4h": data_4h,
+            "15m": data_15m
+        }
+    }
+
+    # Only add AI reports if they were passed to the function
+    if agent1_report: payload["agent_1_technical"] = agent1_report
+    if agent2_report: payload["agent_2_volume"] = agent2_report
+    if agent3_report: payload["agent_3_synthesis"] = agent3_report
+
+    with open(filepath, "w") as file:
+        json.dump(payload, file, indent=2)
+
+    return filepath
 
 def fetch_and_analyze(exchange, symbol: str, timeframe: str) -> dict:
     """
@@ -234,6 +268,9 @@ def status():
     typer.echo(f"Value Area (VAL - VAH): ${data_15m['val']} - ${data_15m['vah']} ({data_15m['va_status']})")
     typer.echo(f"Mean Reversion: {data_15m['dist_144_percent']}% from EMA | {data_15m['dist_poc_percent']}% from POC")
     typer.secho("=" * 60 + "\n", fg=typer.colors.CYAN)
+
+    filepath = log_execution("status", symbol, data_4h, data_15m)
+    console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
 
 @app.command("operate")
 def operate():
@@ -422,6 +459,10 @@ def operate():
             typer.secho("\n⚠️ ACTION: SIT ON HANDS", fg=typer.colors.YELLOW, bold=True)
             typer.echo(f"📝 REASONING: {final_directive.get('reasoning', 'No reasoning provided.')}")
             typer.echo("🛑 Skipping execution math. Awaiting next candle.\n")
+
+            filepath = log_execution("operate", symbol, data_4h, data_15m, tech_report, vol_report, final_directive)
+            console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
+
             raise typer.Exit()
 
         # --- Stop Loss and Take Profit Math ---
@@ -453,6 +494,9 @@ def operate():
         typer.echo(f"Target (TP): ${final_directive['calculated_tp']} | Invalidation (SL): ${final_directive['calculated_sl']}")
         typer.echo(f"TTL: {final_directive['ttl_hours']} Hours")
         typer.secho("-" * 60 + "\n", fg=typer.colors.MAGENTA)
+
+        filepath = log_execution("operate", symbol, data_4h, data_15m, tech_report, vol_report, final_directive)
+        console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
 
     except typer.Exit:
         # Re-raise Typer's Exit exception so the CLI can exit gracefully (e.g., during "SIT ON HANDS")
@@ -645,6 +689,9 @@ def analyze():
         )
 
         console.print(Panel(strategist_summary, title="[Lead Market Strategist - Thesis]", border_style="magenta", box=box.ROUNDED, expand=False))
+
+        filepath = log_execution("analyze", symbol, data_4h, data_15m, tech_report, vol_report, strategist_report)
+        console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
 
     except typer.Exit:
         # Re-raise Typer's Exit exception so the CLI can exit gracefully
