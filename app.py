@@ -10,15 +10,69 @@ import typing
 from rich.console import Console
 from rich.panel import Panel
 from rich import box
+import logging
 
 # Load environment variables from the .env file
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    filename='error.log',
+    level=logging.ERROR,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # Instantiate the Rich console
 console = Console()
 
 # Create the Typer app instance
 app = typer.Typer(help="Bitcoin AI CLI Tool")
+
+# --- Global AI Schemas & Helpers ---
+
+class Agent1Schema(typing.TypedDict):
+    bias: str
+    analysis: str
+    confidence_score: int
+    timeframe_alignment: bool
+    nearest_support: float
+    nearest_resistance: float
+    distance_to_144_ema_percent: float
+    current_atr_14: float
+
+class Agent2Schema(typing.TypedDict):
+    bias: str
+    analysis: str
+    confidence_score: int
+    timeframe_alignment: bool
+    price_to_value_area_status: str
+    distance_to_poc_percent: float
+    volume_vs_20ema: str
+
+class Agent3Schema(typing.TypedDict):
+    symbol: str
+    reasoning: str
+    operative: str
+    order_type: str
+    system_confidence_score: int
+    risk_allocation_percent: float
+    entry_price: float
+    atr_multiplier: float
+    risk_reward_ratio: float
+    ttl_hours: int
+
+class Agent3AnalyzeSchema(typing.TypedDict):
+    symbol: str
+    macro_thesis: str
+    key_danger_zones: str
+    forward_outlook: str
+
+def get_bias_color(bias: str) -> str:
+    if bias in ("STRONGLY_BULLISH", "BULLISH"):
+        return "green"
+    elif bias in ("STRONGLY_BEARISH", "BEARISH"):
+        return "red"
+    return "yellow"
 
 def fetch_and_analyze(exchange, symbol: str, timeframe: str) -> dict:
     """
@@ -131,17 +185,12 @@ def fetch_and_analyze(exchange, symbol: str, timeframe: str) -> dict:
         'va_status': price_to_va_status,
     }
 
-@app.command()
-def analyze():
+@app.command("status")
+def status():
     """
-    Fetch MTF (4h, 15m) data for BTC/USDT, generate indicators, and get an AI analysis.
+    Fetch MTF (4h, 15m) data for BTC/USDT and print the raw metrics.
+    No AI analysis is executed.
     """
-    # Ensure the Gemini API key is loaded securely
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
-        raise typer.Exit(code=1)
-
     try:
         # Initialize a CCXT exchange instance for Binance
         exchange = ccxt.binance()
@@ -152,7 +201,8 @@ def analyze():
         data_15m = fetch_and_analyze(exchange, symbol, '15m')
 
     except (RuntimeError, ValueError, Exception) as e:
-        typer.secho(f"\n❌ Error: Could not calculate metrics - {e}\n", fg=typer.colors.RED, bold=True)
+        logging.error("Failed to calculate metrics", exc_info=True)
+        typer.secho(f"\n❌ Error: Could not calculate metrics. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
         raise typer.Exit(code=1)
 
     # Print the raw metrics cleanly to the console
@@ -185,50 +235,35 @@ def analyze():
     typer.echo(f"Mean Reversion: {data_15m['dist_144_percent']}% from EMA | {data_15m['dist_poc_percent']}% from POC")
     typer.secho("=" * 60 + "\n", fg=typer.colors.CYAN)
 
+@app.command("operate")
+def operate():
+    """
+    Fetch MTF (4h, 15m) data for BTC/USDT and execute trading analysis via AI agents.
+    Outputs the final Order Ticket.
+    """
+    # Ensure the Gemini API key is loaded securely
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    try:
+        # Initialize a CCXT exchange instance for Binance
+        exchange = ccxt.binance()
+        symbol = 'BTC/USDT'
+
+        # Fetch and analyze data for both timeframes (silently)
+        data_4h = fetch_and_analyze(exchange, symbol, '4h')
+        data_15m = fetch_and_analyze(exchange, symbol, '15m')
+
+    except (RuntimeError, ValueError, Exception) as e:
+        logging.error("Failed to calculate metrics", exc_info=True)
+        typer.secho(f"\n❌ Error: Could not calculate metrics. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+        raise typer.Exit(code=1)
+
     try:
         # Initialize the Google GenAI client
         client = genai.Client(api_key=api_key)
-
-        # Define schemas for structured JSON output
-        class Agent1Schema(typing.TypedDict):
-            bias: str
-            analysis: str
-            confidence_score: int
-            timeframe_alignment: bool
-            nearest_support: float
-            nearest_resistance: float
-            distance_to_144_ema_percent: float
-            current_atr_14: float
-
-        class Agent2Schema(typing.TypedDict):
-            bias: str
-            analysis: str
-            confidence_score: int
-            timeframe_alignment: bool
-            price_to_value_area_status: str
-            distance_to_poc_percent: float
-            volume_vs_20ema: str
-
-        class Agent3Schema(typing.TypedDict):
-            symbol: str
-            reasoning: str
-            operative: str
-            order_type: str
-            system_confidence_score: int
-            risk_allocation_percent: float
-            entry_price: float
-            atr_multiplier: float
-            risk_reward_ratio: float
-            ttl_hours: int
-
-
-        # --- Helper Function for Formatting ---
-        def get_bias_color(bias: str) -> str:
-            if bias in ("STRONGLY_BULLISH", "BULLISH"):
-                return "green"
-            elif bias in ("STRONGLY_BEARISH", "BEARISH"):
-                return "red"
-            return "yellow"
 
         # --- Agent 1: Technical Analyst ---
         agent1_prompt = (
@@ -266,8 +301,10 @@ def analyze():
 
         try:
             tech_report = json.loads(agent1_response.text)
-        except json.JSONDecodeError:
-            raise RuntimeError("Failed to parse Agent 1 (Technical) JSON output.")
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse Agent 1 (Technical) JSON output. Raw text: {agent1_response.text}", exc_info=True)
+            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+            raise typer.Exit(code=1)
 
         # Print Agent 1 Panel
         tech_bias = tech_report.get('bias', 'NEUTRAL')
@@ -318,8 +355,10 @@ def analyze():
 
         try:
             vol_report = json.loads(agent2_response.text)
-        except json.JSONDecodeError:
-            raise RuntimeError("Failed to parse Agent 2 (Volume) JSON output.")
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse Agent 2 (Volume) JSON output. Raw text: {agent2_response.text}", exc_info=True)
+            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+            raise typer.Exit(code=1)
 
         # Print Agent 2 Panel
         vol_bias = vol_report.get('bias', 'NEUTRAL')
@@ -372,8 +411,10 @@ def analyze():
 
         try:
             final_directive = json.loads(agent3_response.text)
-        except json.JSONDecodeError:
-            raise RuntimeError("Failed to parse Agent 3 (Portfolio Manager) JSON output.")
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse Agent 3 (Portfolio Manager) JSON output. Raw text: {agent3_response.text}", exc_info=True)
+            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+            raise typer.Exit(code=1)
 
         # --- Handle "SIT ON HANDS" Edge Case ---
         operative = final_directive.get("operative", "SIT ON HANDS")
@@ -417,9 +458,205 @@ def analyze():
         # Re-raise Typer's Exit exception so the CLI can exit gracefully (e.g., during "SIT ON HANDS")
         raise
     except genai.errors.APIError as e:
-        typer.secho(f"API Error: Failed to generate content. Please check your API key and connection. Details: {e}", fg=typer.colors.RED)
+        logging.error("Gemini API Error", exc_info=True)
+        typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+        raise typer.Exit(code=1)
     except Exception as e:
-        typer.secho(f"An unexpected error occurred during AI analysis: {e}", fg=typer.colors.RED)
+        logging.error("Unexpected error during AI analysis", exc_info=True)
+        typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("analyze")
+def analyze():
+    """
+    Fetch MTF (4h, 15m) data for BTC/USDT and execute trading analysis via AI agents.
+    Outputs the Lead Market Strategist thesis.
+    """
+    # Ensure the Gemini API key is loaded securely
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    try:
+        # Initialize a CCXT exchange instance for Binance
+        exchange = ccxt.binance()
+        symbol = 'BTC/USDT'
+
+        # Fetch and analyze data for both timeframes (silently)
+        data_4h = fetch_and_analyze(exchange, symbol, '4h')
+        data_15m = fetch_and_analyze(exchange, symbol, '15m')
+
+    except (RuntimeError, ValueError, Exception) as e:
+        logging.error("Failed to calculate metrics", exc_info=True)
+        typer.secho(f"\n❌ Error: Could not calculate metrics. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+        raise typer.Exit(code=1)
+
+    try:
+        # Initialize the Google GenAI client
+        client = genai.Client(api_key=api_key)
+
+        # --- Agent 1: Technical Analyst ---
+        agent1_prompt = (
+            "You are the Technical Analysis Agent for an algorithmic trading system. "
+            "Your objective is to analyze the 15m and 4H timeframes using EMAs, RSI momentum, and Volatility (ATR). Do not consider volume. "
+            "Your specific duties: \n"
+            "1. Determine the trend bias strictly based on price action and EMA alignment.\n"
+            "2. Identify the nearest major support and resistance levels based on the EMAs.\n"
+            "3. Evaluate timeframe alignment (Does the 15m trend agree with the 4H?).\n"
+            "4. Assess mean reversion risk using the distance to the 144 EMA.\n\n"
+            "Return a strict JSON object with EXACTLY these keys: \n"
+            "- bias (string: STRONGLY_BULLISH, BULLISH, NEUTRAL, BEARISH, or STRONGLY_BEARISH)\n"
+            "- analysis (string: max 3 sentences summarizing momentum, EMAs, and mean reversion risk)\n"
+            "- confidence_score (integer: 0-100)\n"
+            "- timeframe_alignment (boolean: true if 15m and 4H align, false otherwise)\n"
+            "- nearest_support (float: price level)\n"
+            "- nearest_resistance (float: price level)\n"
+            "- distance_to_144_ema_percent (float)\n"
+            "- current_atr_14 (float)\n\n"
+            f"--- MARKET DATA ---\n"
+            f"4H Data: Price: ${data_4h.get('price', 0)}, EMA(34,89,144): [{data_4h.get('ema_34', 0)}, {data_4h.get('ema_89', 0)}, {data_4h.get('ema_144', 0)}], "
+            f"RSI(13,47): [{data_4h.get('rsi_13', 0)}, {data_4h.get('rsi_47', 0)}], RSI Delta: {data_4h.get('rsi_delta', 0)}, "
+            f"ATR(14): {data_4h.get('atr_14', 0)}, Dist to 144 EMA: {data_4h.get('dist_144_percent', 0)}%\n"
+            f"15m Data: Price: ${data_15m.get('price', 0)}, EMA(34,89,144): [{data_15m.get('ema_34', 0)}, {data_15m.get('ema_89', 0)}, {data_15m.get('ema_144', 0)}], "
+            f"RSI(13,47): [{data_15m.get('rsi_13', 0)}, {data_15m.get('rsi_47', 0)}], RSI Delta: {data_15m.get('rsi_delta', 0)}, "
+            f"ATR(14): {data_15m.get('atr_14', 0)}, Dist to 144 EMA: {data_15m.get('dist_144_percent', 0)}%"
+        )
+
+        with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
+            agent1_response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=agent1_prompt,
+                config={"response_mime_type": "application/json", "response_schema": Agent1Schema}
+            )
+
+        try:
+            tech_report = json.loads(agent1_response.text)
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse Agent 1 (Technical) JSON output. Raw text: {agent1_response.text}", exc_info=True)
+            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+            raise typer.Exit(code=1)
+
+        # Print Agent 1 Panel
+        tech_bias = tech_report.get('bias', 'NEUTRAL')
+        tech_color = get_bias_color(tech_bias)
+
+        tech_summary = (
+            f"Bias: [{tech_color} bold]{tech_bias}[/{tech_color} bold]\n"
+            f"Confidence: {tech_report.get('confidence_score', 0)}%\n"
+            f"Support: ${tech_report.get('nearest_support', 0)} | Resistance: ${tech_report.get('nearest_resistance', 0)}\n\n"
+            f"Analysis: {tech_report.get('analysis', '')}"
+        )
+
+        console.print(Panel(tech_summary, title="[Technical Analysis Agent]", border_style=tech_color, box=box.ROUNDED, expand=False))
+
+
+        # --- Agent 2: Liquidity/Volume Analyst ---
+        agent2_prompt = (
+            "You are the Volume Analysis Agent for an algorithmic trading system. "
+            "Your objective is to analyze the 15m and 4H timeframes using Total Volume, Volume Moving Average (VMA), and Volume Profile (POC, VAH, VAL). "
+            "Your specific duties: \n"
+            "1. Determine the volume bias based on momentum and Value Area positioning.\n"
+            "2. Analyze price interaction with the Value Area (e.g., inside value, rejecting boundaries, breaking out).\n"
+            "3. Evaluate timeframe alignment (Does the 15m volume profile agree with the 4H?).\n"
+            "4. Assess mean reversion risk using the percentage distance to the Point of Control (POC).\n\n"
+            "Return a strict JSON object with EXACTLY these keys: \n"
+            "- bias (string: STRONGLY_BULLISH, BULLISH, NEUTRAL, BEARISH, or STRONGLY_BEARISH)\n"
+            "- analysis (string: max 3 sentences summarizing volume strength, POC interaction, and breakout/mean-reversion conditions)\n"
+            "- confidence_score (integer: 0-100)\n"
+            "- timeframe_alignment (boolean: true if 15m and 4H align, false otherwise)\n"
+            "- price_to_value_area_status (string: INSIDE_VALUE, BREAKING_ABOVE_VAH, BREAKING_BELOW_VAL, REJECTING_VAH, or REJECTING_VAL)\n"
+            "- distance_to_poc_percent (float)\n"
+            "- volume_vs_20ema (string: ABOVE_AVERAGE or BELOW_AVERAGE)\n\n"
+            f"--- MARKET DATA ---\n"
+            f"4H Data: Price: ${data_4h.get('price', 0)}, Volume: {data_4h.get('volume', 0)} / VMA(20): {data_4h.get('vma_20', 0)}, "
+            f"POC: ${data_4h.get('poc_price', 0)}, VAL-VAH: ${data_4h.get('val', 0)} - ${data_4h.get('vah', 0)}, "
+            f"VA Status: {data_4h.get('va_status', 'UNKNOWN')}, Dist to POC: {data_4h.get('dist_poc_percent', 0)}%\n"
+            f"15m Data: Price: ${data_15m.get('price', 0)}, Volume: {data_15m.get('volume', 0)} / VMA(20): {data_15m.get('vma_20', 0)}, "
+            f"POC: ${data_15m.get('poc_price', 0)}, VAL-VAH: ${data_15m.get('val', 0)} - ${data_15m.get('vah', 0)}, "
+            f"VA Status: {data_15m.get('va_status', 'UNKNOWN')}, Dist to POC: {data_15m.get('dist_poc_percent', 0)}%"
+        )
+
+        with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
+            agent2_response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=agent2_prompt,
+                config={"response_mime_type": "application/json", "response_schema": Agent2Schema}
+            )
+
+        try:
+            vol_report = json.loads(agent2_response.text)
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse Agent 2 (Volume) JSON output. Raw text: {agent2_response.text}", exc_info=True)
+            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+            raise typer.Exit(code=1)
+
+        # Print Agent 2 Panel
+        vol_bias = vol_report.get('bias', 'NEUTRAL')
+        vol_color = get_bias_color(vol_bias)
+
+        vol_summary = (
+            f"Bias: [{vol_color} bold]{vol_bias}[/{vol_color} bold]\n"
+            f"Confidence: {vol_report.get('confidence_score', 0)}%\n"
+            f"VA Status: {vol_report.get('price_to_value_area_status', 'UNKNOWN')}\n\n"
+            f"Analysis: {vol_report.get('analysis', '')}"
+        )
+
+        console.print(Panel(vol_summary, title="[Volume & Liquidity Agent]", border_style=vol_color, box=box.ROUNDED, expand=False))
+
+        # --- Agent 3: Lead Market Strategist ---
+        agent3_prompt = (
+            "You are a Lead Market Strategist. "
+            f"Synthesize the sub-agent reports for {symbol}. "
+            "Do NOT output trading parameters. "
+            "Provide a macro_thesis (trend direction), key_danger_zones (liquidity traps), and a forward_outlook (what confirms a structural shift)."
+            "\n\nReturn a strict JSON object with EXACTLY these keys: \n"
+            "- symbol (string)\n"
+            "- macro_thesis (string)\n"
+            "- key_danger_zones (string)\n"
+            "- forward_outlook (string)\n\n"
+            f"--- SUB-AGENT REPORTS ---\n"
+            f"Technical Agent Report:\n{json.dumps(tech_report, indent=2)}\n\n"
+            f"Volume Agent Report:\n{json.dumps(vol_report, indent=2)}\n\n"
+            f"--- CURRENT 15m MARKET DATA (For Context) ---\n"
+            f"Price: ${data_15m.get('price', 0)}, ATR(14): ${data_15m.get('atr_14', 0)}, POC: ${data_15m.get('poc_price', 0)}"
+        )
+
+        with console.status("[bold cyan]Agent 3 (Lead Market Strategist) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
+            agent3_response = client.models.generate_content(
+                model="gemini-3.1-flash-lite-preview",
+                contents=agent3_prompt,
+                config={"response_mime_type": "application/json", "response_schema": Agent3AnalyzeSchema}
+            )
+
+        try:
+            strategist_report = json.loads(agent3_response.text)
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse Agent 3 (Strategist) JSON output. Raw text: {agent3_response.text}", exc_info=True)
+            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+            raise typer.Exit(code=1)
+
+        # Print the Lead Market Strategist Panel cleanly
+        strategist_summary = (
+            f"[bold]Macro Thesis:[/bold]\n{strategist_report.get('macro_thesis', '')}\n\n"
+            f"[bold]Key Danger Zones:[/bold]\n{strategist_report.get('key_danger_zones', '')}\n\n"
+            f"[bold]Forward Outlook:[/bold]\n{strategist_report.get('forward_outlook', '')}"
+        )
+
+        console.print(Panel(strategist_summary, title="[Lead Market Strategist - Thesis]", border_style="magenta", box=box.ROUNDED, expand=False))
+
+    except typer.Exit:
+        # Re-raise Typer's Exit exception so the CLI can exit gracefully
+        raise
+    except genai.errors.APIError as e:
+        logging.error("Gemini API Error", exc_info=True)
+        typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+        raise typer.Exit(code=1)
+    except Exception as e:
+        logging.error("Unexpected error during AI analysis", exc_info=True)
+        typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+        raise typer.Exit(code=1)
 
 
 @app.command()
