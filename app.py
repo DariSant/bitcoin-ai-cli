@@ -8,10 +8,11 @@ from dotenv import load_dotenv
 from google import genai
 import typing
 from rich.console import Console
-from datetime import datetime
+from datetime import datetime, timezone
 from rich.panel import Panel
 from rich import box
 import logging
+import pathlib
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -67,6 +68,7 @@ class Agent3AnalyzeSchema(typing.TypedDict):
     macro_thesis: str
     key_danger_zones: str
     forward_outlook: str
+    operative: str
 
 def get_bias_color(bias: str) -> str:
     if bias in ("STRONGLY_BULLISH", "BULLISH"):
@@ -219,16 +221,14 @@ def fetch_and_analyze(exchange, symbol: str, timeframe: str) -> dict:
         'va_status': price_to_va_status,
     }
 
-@app.command("status")
-def status():
+def _run_status(symbol: str = 'BTC/USDT'):
     """
-    Fetch MTF (4h, 15m) data for BTC/USDT and print the raw metrics.
+    Internal helper to fetch MTF (4h, 15m) data for a given symbol and print the raw metrics.
     No AI analysis is executed.
     """
     try:
         # Initialize a CCXT exchange instance for Binance
         exchange = ccxt.binance()
-        symbol = 'BTC/USDT'
 
         # Fetch and analyze data for both timeframes
         data_4h = fetch_and_analyze(exchange, symbol, '4h')
@@ -272,249 +272,90 @@ def status():
     filepath = log_execution("status", symbol, data_4h, data_15m)
     console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
 
-@app.command("operate")
-def operate():
+def _run_operate(symbol: str = 'BTC/USDT'):
     """
-    Fetch MTF (4h, 15m) data for BTC/USDT and execute trading analysis via AI agents.
-    Outputs the final Order Ticket.
+    Internal helper to execute trading operations based on recent analysis.
     """
-    # Ensure the Gemini API key is loaded securely
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
-        raise typer.Exit(code=1)
+    analyze_dir = pathlib.Path("output_alpha/analyze")
+
+    if not analyze_dir.exists():
+        typer.secho("[yellow]No recent analysis has been run in the last 10 minutes.[/yellow]", fg=typer.colors.YELLOW)
+        raise typer.Exit()
+
+    json_files = list(analyze_dir.rglob("*.json"))
+    if not json_files:
+        typer.secho("[yellow]No recent analysis has been run in the last 10 minutes.[/yellow]", fg=typer.colors.YELLOW)
+        raise typer.Exit()
+
+    # Filter files for the requested symbol by reading the payload metadata
+    symbol_files = []
+    for file in json_files:
+        if symbol.replace("/", "") in file.name:
+            symbol_files.append(file)
+        else:
+            # Fallback to reading the file to check the symbol in metadata
+            try:
+                with open(file, "r") as f:
+                    data = json.load(f)
+                    if data.get("metadata", {}).get("symbol") == symbol:
+                        symbol_files.append(file)
+            except Exception:
+                pass
+
+    if not symbol_files:
+        typer.secho("[yellow]No recent analysis has been run in the last 10 minutes.[/yellow]", fg=typer.colors.YELLOW)
+        raise typer.Exit()
+
+    # Sort files by modification time descending to get the most recent one
+    symbol_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    most_recent_file = symbol_files[0]
 
     try:
-        # Initialize a CCXT exchange instance for Binance
-        exchange = ccxt.binance()
-        symbol = 'BTC/USDT'
+        with open(most_recent_file, "r") as f:
+            data = json.load(f)
 
-        # Fetch and analyze data for both timeframes (silently)
-        data_4h = fetch_and_analyze(exchange, symbol, '4h')
-        data_15m = fetch_and_analyze(exchange, symbol, '15m')
+        timestamp_str = data.get("metadata", {}).get("timestamp")
+        if not timestamp_str:
+            raise ValueError("No timestamp found in metadata.")
 
-    except (RuntimeError, ValueError, Exception) as e:
-        logging.error("Failed to calculate metrics", exc_info=True)
-        typer.secho(f"\n❌ Error: Could not calculate metrics. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-        raise typer.Exit(code=1)
+        file_time = datetime.fromisoformat(timestamp_str)
+        now = datetime.now(timezone.utc) if file_time.tzinfo else datetime.now()
 
-    try:
-        # Initialize the Google GenAI client
-        client = genai.Client(api_key=api_key)
-
-        # --- Agent 1: Technical Analyst ---
-        agent1_prompt = (
-            "You are the Technical Analysis Agent for an algorithmic trading system. "
-            "Your objective is to analyze the 15m and 4H timeframes using EMAs, RSI momentum, and Volatility (ATR). Do not consider volume. "
-            "Your specific duties: \n"
-            "1. Determine the trend bias strictly based on price action and EMA alignment.\n"
-            "2. Identify the nearest major support and resistance levels based on the EMAs.\n"
-            "3. Evaluate timeframe alignment (Does the 15m trend agree with the 4H?).\n"
-            "4. Assess mean reversion risk using the distance to the 144 EMA.\n\n"
-            "Return a strict JSON object with EXACTLY these keys: \n"
-            "- bias (string: STRONGLY_BULLISH, BULLISH, NEUTRAL, BEARISH, or STRONGLY_BEARISH)\n"
-            "- analysis (string: max 3 sentences summarizing momentum, EMAs, and mean reversion risk)\n"
-            "- confidence_score (integer: 0-100)\n"
-            "- timeframe_alignment (boolean: true if 15m and 4H align, false otherwise)\n"
-            "- nearest_support (float: price level)\n"
-            "- nearest_resistance (float: price level)\n"
-            "- distance_to_144_ema_percent (float)\n"
-            "- current_atr_14 (float)\n\n"
-            f"--- MARKET DATA ---\n"
-            f"4H Data: Price: ${data_4h.get('price', 0)}, EMA(34,89,144): [{data_4h.get('ema_34', 0)}, {data_4h.get('ema_89', 0)}, {data_4h.get('ema_144', 0)}], "
-            f"RSI(13,47): [{data_4h.get('rsi_13', 0)}, {data_4h.get('rsi_47', 0)}], RSI Delta: {data_4h.get('rsi_delta', 0)}, "
-            f"ATR(14): {data_4h.get('atr_14', 0)}, Dist to 144 EMA: {data_4h.get('dist_144_percent', 0)}%\n"
-            f"15m Data: Price: ${data_15m.get('price', 0)}, EMA(34,89,144): [{data_15m.get('ema_34', 0)}, {data_15m.get('ema_89', 0)}, {data_15m.get('ema_144', 0)}], "
-            f"RSI(13,47): [{data_15m.get('rsi_13', 0)}, {data_15m.get('rsi_47', 0)}], RSI Delta: {data_15m.get('rsi_delta', 0)}, "
-            f"ATR(14): {data_15m.get('atr_14', 0)}, Dist to 144 EMA: {data_15m.get('dist_144_percent', 0)}%"
-        )
-
-        with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
-            agent1_response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=agent1_prompt,
-                config={"response_mime_type": "application/json", "response_schema": Agent1Schema}
-            )
-
-        try:
-            tech_report = json.loads(agent1_response.text)
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse Agent 1 (Technical) JSON output. Raw text: {agent1_response.text}", exc_info=True)
-            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-            raise typer.Exit(code=1)
-
-        # Print Agent 1 Panel
-        tech_bias = tech_report.get('bias', 'NEUTRAL')
-        tech_color = get_bias_color(tech_bias)
-
-        tech_summary = (
-            f"Bias: [{tech_color} bold]{tech_bias}[/{tech_color} bold]\n"
-            f"Confidence: {tech_report.get('confidence_score', 0)}%\n"
-            f"Support: ${tech_report.get('nearest_support', 0)} | Resistance: ${tech_report.get('nearest_resistance', 0)}\n\n"
-            f"Analysis: {tech_report.get('analysis', '')}"
-        )
-
-        console.print(Panel(tech_summary, title="[Technical Analysis Agent]", border_style=tech_color, box=box.ROUNDED, expand=False))
-
-
-        # --- Agent 2: Liquidity/Volume Analyst ---
-        agent2_prompt = (
-            "You are the Volume Analysis Agent for an algorithmic trading system. "
-            "Your objective is to analyze the 15m and 4H timeframes using Total Volume, Volume Moving Average (VMA), and Volume Profile (POC, VAH, VAL). "
-            "Your specific duties: \n"
-            "1. Determine the volume bias based on momentum and Value Area positioning.\n"
-            "2. Analyze price interaction with the Value Area (e.g., inside value, rejecting boundaries, breaking out).\n"
-            "3. Evaluate timeframe alignment (Does the 15m volume profile agree with the 4H?).\n"
-            "4. Assess mean reversion risk using the percentage distance to the Point of Control (POC).\n\n"
-            "Return a strict JSON object with EXACTLY these keys: \n"
-            "- bias (string: STRONGLY_BULLISH, BULLISH, NEUTRAL, BEARISH, or STRONGLY_BEARISH)\n"
-            "- analysis (string: max 3 sentences summarizing volume strength, POC interaction, and breakout/mean-reversion conditions)\n"
-            "- confidence_score (integer: 0-100)\n"
-            "- timeframe_alignment (boolean: true if 15m and 4H align, false otherwise)\n"
-            "- price_to_value_area_status (string: INSIDE_VALUE, BREAKING_ABOVE_VAH, BREAKING_BELOW_VAL, REJECTING_VAH, or REJECTING_VAL)\n"
-            "- distance_to_poc_percent (float)\n"
-            "- volume_vs_20ema (string: ABOVE_AVERAGE or BELOW_AVERAGE)\n\n"
-            f"--- MARKET DATA ---\n"
-            f"4H Data: Price: ${data_4h.get('price', 0)}, Volume: {data_4h.get('volume', 0)} / VMA(20): {data_4h.get('vma_20', 0)}, "
-            f"POC: ${data_4h.get('poc_price', 0)}, VAL-VAH: ${data_4h.get('val', 0)} - ${data_4h.get('vah', 0)}, "
-            f"VA Status: {data_4h.get('va_status', 'UNKNOWN')}, Dist to POC: {data_4h.get('dist_poc_percent', 0)}%\n"
-            f"15m Data: Price: ${data_15m.get('price', 0)}, Volume: {data_15m.get('volume', 0)} / VMA(20): {data_15m.get('vma_20', 0)}, "
-            f"POC: ${data_15m.get('poc_price', 0)}, VAL-VAH: ${data_15m.get('val', 0)} - ${data_15m.get('vah', 0)}, "
-            f"VA Status: {data_15m.get('va_status', 'UNKNOWN')}, Dist to POC: {data_15m.get('dist_poc_percent', 0)}%"
-        )
-
-        with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
-            agent2_response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=agent2_prompt,
-                config={"response_mime_type": "application/json", "response_schema": Agent2Schema}
-            )
-
-        try:
-            vol_report = json.loads(agent2_response.text)
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse Agent 2 (Volume) JSON output. Raw text: {agent2_response.text}", exc_info=True)
-            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-            raise typer.Exit(code=1)
-
-        # Print Agent 2 Panel
-        vol_bias = vol_report.get('bias', 'NEUTRAL')
-        vol_color = get_bias_color(vol_bias)
-
-        vol_summary = (
-            f"Bias: [{vol_color} bold]{vol_bias}[/{vol_color} bold]\n"
-            f"Confidence: {vol_report.get('confidence_score', 0)}%\n"
-            f"VA Status: {vol_report.get('price_to_value_area_status', 'UNKNOWN')}\n\n"
-            f"Analysis: {vol_report.get('analysis', '')}"
-        )
-
-        console.print(Panel(vol_summary, title="[Volume & Liquidity Agent]", border_style=vol_color, box=box.ROUNDED, expand=False))
-
-
-        # --- Agent 3: Portfolio Manager (The Synthesizer) ---
-        agent3_prompt = (
-            "You are the Lead Portfolio Manager for an algorithmic trading system. "
-            f"Your objective is to synthesize the structured JSON reports from the Technical Agent and Volume Agent for {symbol}. "
-            "Your specific duties and strict constraints: \n"
-            "1. Synthesize the bias, timeframe alignment, and confidence scores from both sub-agents.\n"
-            "2. Determine the 'operative' (ENTER LONG, ENTER SHORT, or SIT ON HANDS). If the agents heavily conflict, timeframe alignment is false across the board, or volume is dead, you MUST output 'SIT ON HANDS'.\n"
-            "3. Determine the 'order_type' (MARKET, LIMIT, or NONE). Use MARKET for breakouts, LIMIT for mean-reversion pullbacks.\n"
-            "4. CRITICAL MATH RULE: Do NOT attempt to calculate exact price levels for Stop Loss or Take Profit. You must only output an 'atr_multiplier' (e.g., 1.5, 2.0) for the Stop Loss distance, and a 'risk_reward_ratio' (e.g., 2.0, 3.0) for the Take Profit distance.\n"
-            "5. SIT ON HANDS RULE: If your operative is 'SIT ON HANDS', you must set 'entry_price', 'risk_allocation_percent', 'atr_multiplier', 'risk_reward_ratio', and 'ttl_hours' to exactly 0. Set 'order_type' to 'NONE'.\n\n"
-            "Return a strict JSON object with EXACTLY these keys: \n"
-            "- symbol (string)\n"
-            "- reasoning (string: max 3 sentences explaining confluence/conflict and your decision)\n"
-            "- operative (string: ENTER LONG, ENTER SHORT, SIT ON HANDS)\n"
-            "- order_type (string: MARKET, LIMIT, NONE)\n"
-            "- system_confidence_score (integer: 0-100)\n"
-            "- risk_allocation_percent (float: 0.0 to 2.0)\n"
-            "- entry_price (float: current price for market, pullback target for limit. 0 if SIT ON HANDS)\n"
-            "- atr_multiplier (float: e.g., 1.5. 0 if SIT ON HANDS)\n"
-            "- risk_reward_ratio (float: e.g., 2.0. 0 if SIT ON HANDS)\n"
-            "- ttl_hours (integer: e.g., 12, 24, 48. 0 if SIT ON HANDS)\n\n"
-            f"--- SUB-AGENT REPORTS ---\n"
-            f"Technical Agent Report:\n{json.dumps(tech_report, indent=2)}\n\n"
-            f"Volume Agent Report:\n{json.dumps(vol_report, indent=2)}\n\n"
-            f"--- CURRENT 15m MARKET DATA (For Entry Context) ---\n"
-            f"Price: ${data_15m.get('price', 0)}, ATR(14): ${data_15m.get('atr_14', 0)}, POC: ${data_15m.get('poc_price', 0)}"
-        )
-
-        with console.status("[bold cyan]Agent 3 (Portfolio Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
-            agent3_response = client.models.generate_content(
-                model="gemini-3.1-flash-lite-preview",
-                contents=agent3_prompt,
-                config={"response_mime_type": "application/json", "response_schema": Agent3Schema}
-            )
-
-        try:
-            final_directive = json.loads(agent3_response.text)
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse Agent 3 (Portfolio Manager) JSON output. Raw text: {agent3_response.text}", exc_info=True)
-            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-            raise typer.Exit(code=1)
-
-        # --- Handle "SIT ON HANDS" Edge Case ---
-        operative = final_directive.get("operative", "SIT ON HANDS")
-        if operative == "SIT ON HANDS":
-            typer.secho("\n⚠️ ACTION: SIT ON HANDS", fg=typer.colors.YELLOW, bold=True)
-            typer.echo(f"📝 REASONING: {final_directive.get('reasoning', 'No reasoning provided.')}")
-            typer.echo("🛑 Skipping execution math. Awaiting next candle.\n")
-
-            filepath = log_execution("operate", symbol, data_4h, data_15m, tech_report, vol_report, final_directive)
-            console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
-
+        diff = now - file_time
+        if diff.total_seconds() > 600:
+            typer.secho("[yellow]No recent analysis has been run in the last 10 minutes.[/yellow]", fg=typer.colors.YELLOW)
             raise typer.Exit()
 
-        # --- Stop Loss and Take Profit Math ---
-        take_profit = 0.0
-        stop_loss = 0.0
+        synthesis = data.get("agent_3_synthesis", {})
+        operative = synthesis.get("operative", "SIT ON HANDS")
 
-        entry = final_directive['entry_price']
-        atr = data_15m.get('atr_14', 0)
-        stop_distance = atr * final_directive['atr_multiplier']
-        profit_distance = stop_distance * final_directive['risk_reward_ratio']
+        if operative == "SIT ON HANDS":
+            typer.secho("[yellow]Last analysis says that it is better not to operate given the actual market conditions.[/yellow]", fg=typer.colors.YELLOW)
+            raise typer.Exit()
 
-        if final_directive['operative'] == "ENTER LONG":
-            stop_loss = entry - stop_distance
-            take_profit = entry + profit_distance
-        elif final_directive['operative'] == "ENTER SHORT":
-            stop_loss = entry + stop_distance
-            take_profit = entry - profit_distance
+        # Display the strategist's analysis panel
+        strategist_summary = (
+            f"[bold]Macro Thesis:[/bold]\n{synthesis.get('macro_thesis', '')}\n\n"
+            f"[bold]Key Danger Zones:[/bold]\n{synthesis.get('key_danger_zones', '')}\n\n"
+            f"[bold]Forward Outlook:[/bold]\n{synthesis.get('forward_outlook', '')}\n\n"
+            f"[bold]Operative:[/bold] {operative}"
+        )
 
-        # Append calculated values to the payload
-        final_directive['calculated_tp'] = round(take_profit, 2)
-        final_directive['calculated_sl'] = round(stop_loss, 2)
-
-        # Print the Portfolio Manager's final calculated payload cleanly to the console
-        typer.secho("\n🤖 Portfolio Manager Directive:", fg=typer.colors.MAGENTA, bold=True)
-        typer.secho("-" * 60, fg=typer.colors.MAGENTA)
-        typer.echo(f"Reasoning: {final_directive['reasoning']}")
-        typer.echo(f"Operative: {final_directive['operative']} ({final_directive['order_type']}) @ ${final_directive['entry_price']}")
-        typer.echo(f"Risk Allocation: {final_directive['risk_allocation_percent']}% | System Confidence: {final_directive['system_confidence_score']}%")
-        typer.echo(f"Target (TP): ${final_directive['calculated_tp']} | Invalidation (SL): ${final_directive['calculated_sl']}")
-        typer.echo(f"TTL: {final_directive['ttl_hours']} Hours")
-        typer.secho("-" * 60 + "\n", fg=typer.colors.MAGENTA)
-
-        filepath = log_execution("operate", symbol, data_4h, data_15m, tech_report, vol_report, final_directive)
-        console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
+        console.print(Panel(strategist_summary, title="[Lead Market Strategist - Thesis]", border_style="magenta", box=box.ROUNDED, expand=False))
+        console.print("[green]Proceeding to Agent 4 Execution...[/green]")
+        return
 
     except typer.Exit:
-        # Re-raise Typer's Exit exception so the CLI can exit gracefully (e.g., during "SIT ON HANDS")
         raise
-    except genai.errors.APIError as e:
-        logging.error("Gemini API Error", exc_info=True)
-        typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-        raise typer.Exit(code=1)
     except Exception as e:
-        logging.error("Unexpected error during AI analysis", exc_info=True)
-        typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+        logging.error(f"Failed to read or parse analysis file {most_recent_file}", exc_info=True)
+        typer.secho(f"\n❌ Error: Could not read analysis file. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
         raise typer.Exit(code=1)
 
 
-@app.command("analyze")
-def analyze():
+def _run_analyze(symbol: str = 'BTC/USDT'):
     """
-    Fetch MTF (4h, 15m) data for BTC/USDT and execute trading analysis via AI agents.
+    Internal helper to fetch MTF (4h, 15m) data for a given symbol and execute trading analysis via AI agents.
     Outputs the Lead Market Strategist thesis.
     """
     # Ensure the Gemini API key is loaded securely
@@ -526,7 +367,6 @@ def analyze():
     try:
         # Initialize a CCXT exchange instance for Binance
         exchange = ccxt.binance()
-        symbol = 'BTC/USDT'
 
         # Fetch and analyze data for both timeframes (silently)
         data_4h = fetch_and_analyze(exchange, symbol, '4h')
@@ -654,12 +494,14 @@ def analyze():
             "You are a Lead Market Strategist. "
             f"Synthesize the sub-agent reports for {symbol}. "
             "Do NOT output trading parameters. "
-            "Provide a macro_thesis (trend direction), key_danger_zones (liquidity traps), and a forward_outlook (what confirms a structural shift)."
+            "Provide a macro_thesis (trend direction), key_danger_zones (liquidity traps), a forward_outlook (what confirms a structural shift), and an operative."
+            "\nDetermine the 'operative' (ENTER LONG, ENTER SHORT, or SIT ON HANDS). If the agents heavily conflict or timeframe alignment is false across the board, you MUST output 'SIT ON HANDS'."
             "\n\nReturn a strict JSON object with EXACTLY these keys: \n"
             "- symbol (string)\n"
             "- macro_thesis (string)\n"
             "- key_danger_zones (string)\n"
-            "- forward_outlook (string)\n\n"
+            "- forward_outlook (string)\n"
+            "- operative (string: ENTER LONG, ENTER SHORT, or SIT ON HANDS)\n\n"
             f"--- SUB-AGENT REPORTS ---\n"
             f"Technical Agent Report:\n{json.dumps(tech_report, indent=2)}\n\n"
             f"Volume Agent Report:\n{json.dumps(vol_report, indent=2)}\n\n"
@@ -685,7 +527,8 @@ def analyze():
         strategist_summary = (
             f"[bold]Macro Thesis:[/bold]\n{strategist_report.get('macro_thesis', '')}\n\n"
             f"[bold]Key Danger Zones:[/bold]\n{strategist_report.get('key_danger_zones', '')}\n\n"
-            f"[bold]Forward Outlook:[/bold]\n{strategist_report.get('forward_outlook', '')}"
+            f"[bold]Forward Outlook:[/bold]\n{strategist_report.get('forward_outlook', '')}\n\n"
+            f"[bold]Operative:[/bold] {strategist_report.get('operative', 'SIT ON HANDS')}"
         )
 
         console.print(Panel(strategist_summary, title="[Lead Market Strategist - Thesis]", border_style="magenta", box=box.ROUNDED, expand=False))
@@ -705,6 +548,38 @@ def analyze():
         typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
         raise typer.Exit(code=1)
 
+
+@app.command("status")
+def status_command(symbol: str = typer.Argument("BTC/USDT")):
+    """
+    Fetch MTF (4h, 15m) data for the given symbol and print the raw metrics.
+    No AI analysis is executed.
+    """
+    _run_status(symbol)
+
+@app.command("analyze")
+def analyze_command(symbol: str = typer.Argument("BTC/USDT")):
+    """
+    Fetch MTF (4h, 15m) data and execute trading analysis via AI agents.
+    Outputs the Lead Market Strategist thesis.
+    """
+    _run_analyze(symbol)
+
+@app.command("operate")
+def operate_command(symbol: str = typer.Argument("BTC/USDT")):
+    """
+    Execute trading operations based on recent analysis.
+    """
+    _run_operate(symbol)
+
+@app.command("auto")
+def auto_command(symbol: str = typer.Argument("BTC/USDT")):
+    """
+    Execute the entire sequential pipeline: Status -> Analyze -> Operate.
+    """
+    _run_status(symbol)
+    _run_analyze(symbol)
+    _run_operate(symbol)
 
 @app.command()
 def ask(question: str):
