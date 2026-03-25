@@ -368,26 +368,27 @@ def _run_analyze(symbol: str = 'BTC/USDT'):
         client = genai.Client(api_key=api_key)
 
         # --- Agent 1: Technical Analyst ---
-        agent1_prompt = (
-            "You are the Lead Technical Analyst. Your objective is precise, data-driven analysis. "
-            "Trend State: Analyze the alignment of the fast EMA (34) against the slow EMAs (89, 144) across 15m and 4H timeframes. State if they are in confluence or contradiction. "
-            "Momentum: Analyze RSI (13, 47) and rsi_delta. State if overbought, oversold, or diverging. "
-            "Key Levels: Look strictly at the calculated_support and calculated_resistance in the 4H and 15m JSON data. You MUST select the nearest structural threat from these lists and explain why. Do not invent prices.\n\n"
-            "Return a strict JSON object with EXACTLY these keys: \n"
-            "- bias (string: BULLISH, BEARISH, or NEUTRAL)\n"
-            "- trend_state (string)\n"
-            "- momentum_divergence (string)\n"
-            "- key_level_interaction (string)\n\n"
-            f"--- MARKET DATA ---\n"
-            f"4H Data: Price: ${data_4h.get('price', 0)}, "
-            f"Calculated Support: ${data_4h.get('calculated_support', 0)}, Calculated Resistance: ${data_4h.get('calculated_resistance', 0)}, "
-            f"EMA(34,89,144): [{data_4h.get('ema_34', 0)}, {data_4h.get('ema_89', 0)}, {data_4h.get('ema_144', 0)}], "
-            f"RSI(13,47): [{data_4h.get('rsi_13', 0)}, {data_4h.get('rsi_47', 0)}], RSI Delta: {data_4h.get('rsi_delta', 0)}\n"
-            f"15m Data: Price: ${data_15m.get('price', 0)}, "
-            f"Calculated Support: ${data_15m.get('calculated_support', 0)}, Calculated Resistance: ${data_15m.get('calculated_resistance', 0)}, "
-            f"EMA(34,89,144): [{data_15m.get('ema_34', 0)}, {data_15m.get('ema_89', 0)}, {data_15m.get('ema_144', 0)}], "
-            f"RSI(13,47): [{data_15m.get('rsi_13', 0)}, {data_15m.get('rsi_47', 0)}], RSI Delta: {data_15m.get('rsi_delta', 0)}"
-        )
+        # 1. Safely serialize the exact dictionaries for the LLM
+        market_data_payload = json.dumps({
+            "4H_Timeframe": data_4h,
+            "15m_Timeframe": data_15m
+        }, indent=2)
+
+        # 2. The Optimized Standard Operating Procedure (SOP) Prompt
+        agent1_prompt = f"""You are the Lead Technical Analyst for a quantitative trading desk. Your objective is precise, data-driven analysis.
+
+### 1. Trend State
+Analyze the alignment of the fast EMA (34) against the slow EMAs (89, 144) across the 15m and 4H timeframes. State explicitly if they are in confluence or contradiction.
+
+### 2. Momentum
+Analyze the RSI (13, 47) and rsi_delta. State explicitly if momentum is overbought, oversold, or diverging.
+
+### 3. Key Levels
+Look strictly at the `calculated_support` and `calculated_resistance` in the market data below. You MUST select the nearest structural threat from these lists and explain why. Do not invent prices.
+
+--- MARKET DATA ---
+{market_data_payload}
+"""
 
         with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
             agent1_response = client.models.generate_content(
