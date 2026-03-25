@@ -367,13 +367,24 @@ def _run_analyze(symbol: str = 'BTC/USDT'):
         # Initialize the Google GenAI client
         client = genai.Client(api_key=api_key)
 
-        # --- Agent 1: Technical Analyst ---
-        # 1. Safely serialize the exact dictionaries for the LLM
-        market_data_payload = json.dumps({
-            "4H_Timeframe": data_4h,
-            "15m_Timeframe": data_15m
+        # --- THE DATA DIET: SPLITTING PAYLOADS ---
+        def extract_tech_data(d: dict) -> dict:
+            return {k: d.get(k) for k in ['price', 'ema_34', 'ema_89', 'ema_144', 'rsi_13', 'rsi_47', 'rsi_delta', 'calculated_support', 'calculated_resistance', 'dist_144_percent', 'atr_14']}
+
+        def extract_vol_data(d: dict) -> dict:
+            return {k: d.get(k) for k in ['price', 'volume', 'vma_20', 'poc_price', 'vah', 'val', 'va_status', 'dist_poc_percent']}
+
+        tech_payload = json.dumps({
+            "4H_Timeframe": extract_tech_data(data_4h),
+            "15m_Timeframe": extract_tech_data(data_15m)
         }, indent=2)
 
+        vol_payload = json.dumps({
+            "4H_Timeframe": extract_vol_data(data_4h),
+            "15m_Timeframe": extract_vol_data(data_15m)
+        }, indent=2)
+
+        # --- Agent 1: Technical Analyst ---
         # 2. The Optimized Standard Operating Procedure (SOP) Prompt
         agent1_prompt = f"""You are the Lead Technical Analyst for a quantitative trading desk. Your objective is precise, data-driven analysis.
 
@@ -387,7 +398,7 @@ Analyze the RSI (13, 47) and rsi_delta. State explicitly if momentum is overboug
 Look strictly at the `calculated_support` and `calculated_resistance` in the market data below. You MUST select the nearest structural threat from these lists and explain why. Do not invent prices.
 
 --- MARKET DATA ---
-{market_data_payload}
+{tech_payload}
 """
 
         with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
@@ -419,24 +430,20 @@ Look strictly at the `calculated_support` and `calculated_resistance` in the mar
 
 
         # --- Agent 2: Liquidity/Volume Analyst ---
-        agent2_prompt = (
-            "You are the Lead Volume Analyst. "
-            "Liquidity State: Look strictly at price_to_va_status and the vah/val prices. Is the asset in price discovery or chopping inside fair value? "
-            "Volume Momentum: Compare the latest volume against VMA_20. Is volume expanding or contracting? "
-            "Magnet Target: Look strictly at the poc_price, vah, and val in the JSON. You MUST select the single most likely liquidity node price will be drawn to next. Do not invent prices.\n\n"
-            "Return a strict JSON object with EXACTLY these keys: \n"
-            "- bias (string: BULLISH, BEARISH, or NEUTRAL)\n"
-            "- liquidity_state (string)\n"
-            "- volume_momentum (string)\n"
-            "- magnet_target (string)\n\n"
-            f"--- MARKET DATA ---\n"
-            f"4H Data: Price: ${data_4h.get('price', 0)}, Volume: {data_4h.get('volume', 0)} / VMA(20): {data_4h.get('vma_20', 0)}, "
-            f"POC: ${data_4h.get('poc_price', 0)}, VAL: ${data_4h.get('val', 0)}, VAH: ${data_4h.get('vah', 0)}, "
-            f"VA Status: {data_4h.get('va_status', 'UNKNOWN')}\n"
-            f"15m Data: Price: ${data_15m.get('price', 0)}, Volume: {data_15m.get('volume', 0)} / VMA(20): {data_15m.get('vma_20', 0)}, "
-            f"POC: ${data_15m.get('poc_price', 0)}, VAL: ${data_15m.get('val', 0)}, VAH: ${data_15m.get('vah', 0)}, "
-            f"VA Status: {data_15m.get('va_status', 'UNKNOWN')}"
-        )
+        agent2_prompt = f"""You are the Lead Volume & Liquidity Analyst for a quantitative trading desk. Your objective is precise, data-driven analysis of institutional capital flows.
+
+### 1. Liquidity State
+Look strictly at the `va_status` and the `vah` and `val` prices. Is the asset in price discovery (breaking out) or chopping inside fair value? State this explicitly.
+
+### 2. Volume Momentum
+Compare the latest `volume` against the `vma_20`. State explicitly if volume is expanding (validating the current price move) or contracting/below average.
+
+### 3. Magnet Target
+Look strictly at the `poc_price`, `vah`, and `val` in the market data below. You MUST select the single most likely liquidity node that price will be drawn to next. Do not invent prices. Use `dist_poc_percent` to contextualize your choice.
+
+--- MARKET DATA ---
+{vol_payload}
+"""
 
         with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
             agent2_response = client.models.generate_content(
