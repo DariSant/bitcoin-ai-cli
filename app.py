@@ -47,10 +47,18 @@ class Agent2VolumeSchema(typing.TypedDict):
     bias: typing.Literal["STRONGLY_BULLISH", "BULLISH", "NEUTRAL", "BEARISH", "STRONGLY_BEARISH"]
 
 class Agent3ManagerSchema(typing.TypedDict):
-    technical_synthesis: str
-    risk_profile: str
-    confidence_score: int # Must be an integer between 0 and 100
+    executive_summary: str
+    confluence_matrix: str
+    risk_vector: str
     final_verdict: typing.Literal["GO LONG", "GO SHORT", "SIT ON HANDS"]
+
+class Agent4OperatorSchema(typing.TypedDict):
+    order_type: typing.Literal["LIMIT", "MARKET"]
+    entry_price: float
+    stop_loss: float
+    take_profit: float
+    risk_reward_ratio: float
+    position_size_usd: float
 
 def get_bias_color(bias: str) -> str:
     if bias in ("STRONGLY_BULLISH", "BULLISH"):
@@ -330,19 +338,126 @@ def _run_operate(symbol: str = 'BTC/USDT'):
         final_verdict = synthesis.get("final_verdict", "SIT ON HANDS")
 
         if final_verdict == "SIT ON HANDS":
-            typer.secho("[yellow]Last analysis says that it is better not to operate given the actual market conditions.[/yellow]", fg=typer.colors.YELLOW)
+            typer.secho("\n[yellow]Final Verdict is SIT ON HANDS. Execution halted.[/yellow]", fg=typer.colors.YELLOW, bold=True)
             raise typer.Exit()
 
         # Display the strategist's analysis panel
         strategist_summary = (
-            f"[bold]Final Verdict:[/bold] {final_verdict}\n"
-            f"[bold]Confidence Score:[/bold] {synthesis.get('confidence_score', 0)}\n\n"
-            f"[bold]Technical Synthesis:[/bold]\n{synthesis.get('technical_synthesis', '')}\n\n"
-            f"[bold]Risk Profile:[/bold]\n{synthesis.get('risk_profile', '')}"
+            f"[bold]Executive Summary:[/bold]\n{synthesis.get('executive_summary', '')}\n\n"
+            f"[bold]Confluence Matrix:[/bold]\n{format_pipe_string(synthesis.get('confluence_matrix', ''))}\n\n"
+            f"[bold]Risk Vector:[/bold]\n{format_pipe_string(synthesis.get('risk_vector', ''))}\n\n"
+            f"[bold]Final Verdict:[/bold] {final_verdict}"
         )
 
         console.print(Panel(strategist_summary, title="[Lead Market Strategist - Synthesis]", border_style="magenta", box=box.ROUNDED, expand=False))
         console.print("[green]Proceeding to Agent 4 Execution...[/green]")
+
+        # --- Python Short-Circuit Routing & Operator Payload Construction ---
+        raw_15m = data.get("raw_market_data", {}).get("15m", {})
+
+        current_price = raw_15m.get("price")
+        atr_14 = raw_15m.get("atr_14")
+        poc_price = raw_15m.get("poc_price")
+        calculated_support = raw_15m.get("calculated_support")
+        calculated_resistance = raw_15m.get("calculated_resistance")
+
+        if final_verdict == "GO LONG":
+            agent_1_threat_level = calculated_support
+        else: # "GO SHORT"
+            agent_1_threat_level = calculated_resistance
+
+        agent_2_magnet_target = poc_price
+
+        operator_payload = {
+            "verdict": final_verdict,
+            "account_balance_usdt": 10000.0,
+            "risk_per_trade_percent": 1.0,
+            "current_price": current_price,
+            "atr_14": atr_14,
+            "agent_1_threat_level": agent_1_threat_level,
+            "agent_2_magnet_target": agent_2_magnet_target
+        }
+
+        # --- Agent 4: The Operator ---
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
+
+        client = genai.Client(api_key=api_key)
+
+        agent4_prompt = f"""SYSTEM PROMPT:
+You are The Operator, the final execution tier of a quantitative trading system.
+You are a pure mathematical logic gate. You do not analyze the market; you calculate exact risk perimeters and position sizes based on the Portfolio Manager's verdict and the provided data payload.
+
+DATA INPUTS PROVIDED:
+`verdict` (GO LONG or GO SHORT), `account_balance_usdt`, `risk_per_trade_percent`, `current_price`, `atr_14`, `agent_1_threat_level` (invalidation price), `agent_2_magnet_target` (take profit price).
+
+OUTPUT INSTRUCTIONS:
+Calculate the execution parameters mathematically and return the strict schema:
+
+1. order_type: Based on current price vs entry, output "LIMIT" or "MARKET".
+2. entry_price: The exact price to execute the trade (usually `current_price` unless specifying a pullback limit).
+3. stop_loss: Calculate as `agent_1_threat_level` PLUS/MINUS a buffer of `0.5 * atr_14` (to avoid wicks).
+4. take_profit: Snap exactly to `agent_2_magnet_target`.
+5. risk_reward_ratio: Calculate absolute distance (Entry to TP) / absolute distance (Entry to SL). Format as a float with 2 decimals (e.g., 2.50).
+6. position_size_usd: Calculate maximum dollar risk using `(account_balance_usdt * (risk_per_trade_percent / 100))`. Divide this max dollar risk by the percentage distance from `entry_price` to `stop_loss` to get the total position size in USD.
+
+EXECUTION:
+Do not explain your math. Output only the calculated data schema. Precision is mandatory.
+
+--- OPERATOR PAYLOAD ---
+{json.dumps(operator_payload, indent=2)}
+"""
+
+        with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
+            agent4_response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=agent4_prompt,
+                config={"response_mime_type": "application/json", "response_schema": Agent4OperatorSchema}
+            )
+
+        try:
+            operator_report = json.loads(agent4_response.text)
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse Agent 4 (Operator) JSON output. Raw text: {agent4_response.text}", exc_info=True)
+            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+            raise typer.Exit(code=1)
+
+        # Print Agent 4 Panel
+        operator_summary = (
+            f"[bold]Order Type:[/bold] {operator_report.get('order_type', '')}\n"
+            f"[bold]Entry Price:[/bold] ${operator_report.get('entry_price', 0):,.2f}\n"
+            f"[bold]Stop Loss:[/bold] ${operator_report.get('stop_loss', 0):,.2f}\n"
+            f"[bold]Take Profit:[/bold] ${operator_report.get('take_profit', 0):,.2f}\n"
+            f"[bold]Risk/Reward Ratio:[/bold] {operator_report.get('risk_reward_ratio', 0):.2f}\n"
+            f"[bold]Position Size USD:[/bold] ${operator_report.get('position_size_usd', 0):,.2f}"
+        )
+
+        console.print(Panel(operator_summary, title="[The Operator - Execution Ticket]", border_style="cyan", box=box.ROUNDED, expand=False))
+
+        # --- Save Execution Footprint ---
+        now = datetime.now()
+        directory_path = f"output_alpha/operate/{now.strftime('%Y-%m')}/"
+        os.makedirs(directory_path, exist_ok=True)
+        filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{symbol.replace('/', '')}_EXECUTION.json"
+        filepath = os.path.join(directory_path, filename)
+
+        execution_footprint = {
+            "metadata": {
+                "timestamp": now.isoformat(),
+                "symbol": symbol,
+                "command_run": "operate"
+            },
+            "operator_payload": operator_payload,
+            "agent_4_execution": operator_report
+        }
+
+        with open(filepath, "w") as file:
+            json.dump(execution_footprint, file, indent=2)
+
+        console.print(f"[dim]💾 Execution Footprint saved to: {filepath}[/dim]")
+
         return
 
     except typer.Exit:
@@ -512,20 +627,20 @@ Synthesize the provided JSON payload into the schema above. Track the math, map 
 
         # --- Agent 3: Lead Market Strategist ---
         agent3_prompt = f"""SYSTEM PROMPT:
-You are the Lead Portfolio Manager and Execution Strategist for a deterministic Quantitative AI Execution Engine.
-You do NOT look at raw market data. Your sole function is to synthesize the structured reports from the Technical Analyst (Agent 1) and the Volume & Liquidity Analyst (Agent 2).
+You are the Lead Portfolio Manager for a deterministic Quantitative AI Execution Engine.
+You do NOT look at raw market data. Your function is to synthesize the structured reports from the Technical Analyst (Agent 1) and the Volume & Liquidity Analyst (Agent 2).
 
 YOUR PRIORITIES:
 1. Capital Preservation: Any conflict between Macro/Micro timeframes or Technicals/Volume equals an immediate stand-down.
-2. Confluence Validation: For an execution command, Agent 1 and Agent 2 must align in their Biases (e.g., both Bullish/Strongly Bullish).
-3. Risk-to-Reward (R:R) Asymmetry: Price must be optimally positioned against structural invalidation levels (Agent 1's key levels) with a clear path to liquidity targets (Agent 2's magnet).
+2. Confluence Validation: For an execution command, Agent 1 and Agent 2 must align in their Biases.
+3. Risk-to-Reward (R:R) Asymmetry: Price must be optimally positioned against structural invalidation levels with a clear path to liquidity targets.
 
 OUTPUT INSTRUCTIONS:
-Return a definitive execution command adhering to the following schema:
+Return a strictly formatted response adhering to the following schema:
 
-1. technical_synthesis: A brutal, 2-3 sentence cross-examination of Agent 1 and Agent 2's reports. Identify structural confluences or critical failures.
-2. risk_profile: Define the exact R:R landscape. Reference Agent 1's `calculated_support/resistance` as hard stop parameters and Agent 2's `magnet_target` as the primary take-profit horizon. State whether the risk is ASYMMETRIC (favorable) or TOXIC (unfavorable).
-3. confidence_score: Integer from 0 to 100. (Score < 60 MUST result in SIT ON HANDS. Score > 80 required for STRONGLY directional executions).
+1. executive_summary: Write a highly professional, deep, 3-4 sentence human-readable analysis. Synthesize the core structural thesis, liquidity flow, and the institutional logic behind your final decision. Read like a prop-firm portfolio manager addressing the trading desk.
+2. confluence_matrix: Format as `STRUCTURE: [ALIGN/CONFLICT] | VOLUME: [SUPPORTIVE/DECAY] | ACTION: [VALID/INVALID]`.
+3. risk_vector: Format as `THREAT_PROXIMITY: [HIGH/LOW] | MAGNET_PULL: [STRONG/WEAK] | OVERALL_RISK: [ASYMMETRIC/TOXIC]`.
 4. final_verdict: Must be EXACTLY ONE of the following literals: "GO LONG", "GO SHORT", "SIT ON HANDS".
 
 EXECUTION LOGIC:
@@ -533,8 +648,6 @@ If Timeframes contradict -> SIT ON HANDS.
 If Volume is contracting while Price tests Resistance -> SIT ON HANDS.
 If Agent 1 Bias = NEUTRAL or Agent 2 Bias = NEUTRAL -> SIT ON HANDS.
 If Technicals and Flow align perfectly with Asymmetric Risk -> GO LONG / GO SHORT.
-
-Be ruthless. Protect the capital.
 
 --- SUB-AGENT REPORTS ---
 Technical Agent Report:
@@ -564,10 +677,10 @@ Price: ${data_15m.get('price', 0)}
         # Print the Lead Market Strategist Panel cleanly
         final_verdict = strategist_report.get('final_verdict', 'SIT ON HANDS')
         strategist_summary = (
-            f"[bold]Final Verdict:[/bold] {final_verdict}\n"
-            f"[bold]Confidence Score:[/bold] {strategist_report.get('confidence_score', 0)}\n\n"
-            f"[bold]Technical Synthesis:[/bold]\n{strategist_report.get('technical_synthesis', '')}\n\n"
-            f"[bold]Risk Profile:[/bold]\n{strategist_report.get('risk_profile', '')}"
+            f"[bold]Executive Summary:[/bold]\n{strategist_report.get('executive_summary', '')}\n\n"
+            f"[bold]Confluence Matrix:[/bold]\n{format_pipe_string(strategist_report.get('confluence_matrix', ''))}\n\n"
+            f"[bold]Risk Vector:[/bold]\n{format_pipe_string(strategist_report.get('risk_vector', ''))}\n\n"
+            f"[bold]Final Verdict:[/bold] {final_verdict}"
         )
 
         console.print(Panel(strategist_summary, title="[Lead Market Strategist - Synthesis]", border_style="magenta", box=box.ROUNDED, expand=False))
