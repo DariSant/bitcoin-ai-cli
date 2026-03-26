@@ -33,16 +33,18 @@ app = typer.Typer(help="Bitcoin AI CLI Tool")
 # --- Global AI Schemas & Helpers ---
 
 class Agent1TechSchema(typing.TypedDict):
-    bias: typing.Literal["BULLISH", "BEARISH", "NEUTRAL"]
+    general_analysis: str
     trend_state: str
     momentum_divergence: str
     key_level_interaction: str
+    bias: typing.Literal["STRONGLY_BULLISH", "BULLISH", "NEUTRAL", "BEARISH", "STRONGLY_BEARISH"]
 
 class Agent2VolumeSchema(typing.TypedDict):
-    bias: typing.Literal["BULLISH", "BEARISH", "NEUTRAL"]
+    general_analysis: str
     liquidity_state: str
     volume_momentum: str
     magnet_target: str
+    bias: typing.Literal["STRONGLY_BULLISH", "BULLISH", "NEUTRAL", "BEARISH", "STRONGLY_BEARISH"]
 
 class Agent3ManagerSchema(typing.TypedDict):
     technical_synthesis: str
@@ -56,6 +58,18 @@ def get_bias_color(bias: str) -> str:
     elif bias in ("STRONGLY_BEARISH", "BEARISH"):
         return "red"
     return "yellow"
+
+def format_pipe_string(text: str) -> str:
+    """
+    Splits dense, pipe-separated string outputs into a clean, multi-line format
+    with bullet points for terminal UI readability.
+    """
+    if not text:
+        return ""
+    # Split by pipe and clean up whitespace
+    segments = [seg.strip() for seg in text.split('|') if seg.strip()]
+    # Rejoin with newlines and bullet points
+    return "\n".join(f"  • {seg}" for seg in segments)
 
 def log_execution(command_name: str, symbol: str, data_4h: dict, data_15m: dict, agent1_report: dict = None, agent2_report: dict = None, agent3_report: dict = None) -> str:
     """
@@ -386,16 +400,27 @@ def _run_analyze(symbol: str = 'BTC/USDT'):
 
         # --- Agent 1: Technical Analyst ---
         # 2. The Optimized Standard Operating Procedure (SOP) Prompt
-        agent1_prompt = f"""You are the Lead Technical Analyst for a quantitative trading desk. Your objective is precise, data-driven analysis.
+        agent1_prompt = f"""SYSTEM PROMPT:
+You are the Lead Technical Analyst for a quantitative trading firm. Your sole function is to evaluate calculated market structure, trend momentum, and key level interactions using exact data variables.
 
-### 1. Trend State
-Analyze the alignment of the fast EMA (34) against the slow EMAs (89, 144) across the 15m and 4H timeframes. State explicitly if they are in confluence or contradiction.
+YOU ARE STRICTLY FORBIDDEN from using conversational filler, predictions, or retail trading slang.
+BANNED WORDS: "shows", "suggests", "might", "appears", "contradiction", "maybe", "I think".
+REQUIRED VOCABULARY: "CONFIRMED", "INVALIDATED", "CONVERGENCE", "DIVERGENCE", "TESTING", "REJECTING", "ALIGNMENT".
 
-### 2. Momentum
-Analyze the RSI (13, 47) and rsi_delta. State explicitly if momentum is overbought, oversold, or diverging.
+DATA INPUTS PROVIDED:
+`price`, `ema_34` (fast), `ema_89` (baseline), `ema_144` (macro S/R), `rsi_13`, `rsi_47`, `rsi_delta`, `calculated_support`, `calculated_resistance`. (Data includes both 4H Macro and 15m Micro timeframes).
 
-### 3. Key Levels
-Look strictly at the `calculated_support` and `calculated_resistance` in the market data below. You MUST select the nearest structural threat from these lists and explain why. Do not invent prices.
+OUTPUT INSTRUCTIONS:
+You must return a strictly formatted response adhering to the following schema. Use pipe operators (|) for multi-variable states.
+
+1. general_analysis: A highly dense, cold, quantitative summary of the structural state. No fluff. Evaluate the synergy or conflict between the 4H and 15m timeframes.
+2. trend_state: Format as `MACRO: [STATE] | MICRO: [STATE] | STATUS: [ALIGNMENT/CONFLICT]`. (Use EMA hierarchy to define state).
+3. momentum_divergence: Format as `RSI_FAST: [VALUE] | RSI_SLOW: [VALUE] | DELTA: [VALUE] | STATE: [ACCELERATION/DECAY/OVERSOLD/OVERBOUGHT]`.
+4. key_level_interaction: Note the exact distance of `price` to `calculated_support` and `calculated_resistance`. Format as `THREAT: [SUPPORT/RESISTANCE] | DISTANCE: [X]% | ACTION: [TESTING/REJECTING/CLEAR]`.
+5. bias: Must be exactly one of the following based strictly on the data: STRONGLY_BULLISH, BULLISH, NEUTRAL, BEARISH, STRONGLY_BEARISH.
+
+EXECUTION:
+Synthesize the provided JSON payload into the schema above. Prioritize mathematical exactness over narrative.
 
 --- MARKET DATA ---
 {tech_payload}
@@ -420,26 +445,38 @@ Look strictly at the `calculated_support` and `calculated_resistance` in the mar
         tech_color = get_bias_color(tech_bias)
 
         tech_summary = (
+            f"[bold]General Analysis:[/bold]\n{tech_report.get('general_analysis', '')}\n\n"
             f"Bias: [{tech_color} bold]{tech_bias}[/{tech_color} bold]\n\n"
-            f"[bold]Trend State:[/bold]\n{tech_report.get('trend_state', '')}\n\n"
-            f"[bold]Momentum Divergence:[/bold]\n{tech_report.get('momentum_divergence', '')}\n\n"
-            f"[bold]Key Level Interaction:[/bold]\n{tech_report.get('key_level_interaction', '')}"
+            f"[bold]Trend State:[/bold]\n{format_pipe_string(tech_report.get('trend_state', ''))}\n\n"
+            f"[bold]Momentum Divergence:[/bold]\n{format_pipe_string(tech_report.get('momentum_divergence', ''))}\n\n"
+            f"[bold]Key Level Interaction:[/bold]\n{format_pipe_string(tech_report.get('key_level_interaction', ''))}"
         )
 
         console.print(Panel(tech_summary, title="[Technical Analysis Agent]", border_style=tech_color, box=box.ROUNDED, expand=False))
 
 
         # --- Agent 2: Liquidity/Volume Analyst ---
-        agent2_prompt = f"""You are the Lead Volume & Liquidity Analyst for a quantitative trading desk. Your objective is precise, data-driven analysis of institutional capital flows.
+        agent2_prompt = f"""SYSTEM PROMPT:
+You are the Lead Volume & Liquidity Analyst for a quantitative prop firm. Your objective is to map institutional capital flows, volume node acceptance/rejection, and Value Area (VA) transitions.
 
-### 1. Liquidity State
-Look strictly at the `va_status` and the `vah` and `val` prices. Is the asset in price discovery (breaking out) or chopping inside fair value? State this explicitly.
+YOU ARE STRICTLY FORBIDDEN from using conversational filler or narrative forecasting.
+BANNED WORDS: "shows", "suggests", "might", "appears", "chopping", "fair value".
+REQUIRED VOCABULARY: "ACCEPTANCE", "REJECTION", "EXPANSION", "CONTRACTION", "ROTATION", "LIQUIDITY_VOID".
 
-### 2. Volume Momentum
-Compare the latest `volume` against the `vma_20`. State explicitly if volume is expanding (validating the current price move) or contracting/below average.
+DATA INPUTS PROVIDED:
+`price`, `volume`, `vma_20`, `poc_price`, `vah`, `val`, `price_to_va_status`, `distance_to_poc_percent`.
 
-### 3. Magnet Target
-Look strictly at the `poc_price`, `vah`, and `val` in the market data below. You MUST select the single most likely liquidity node that price will be drawn to next. Do not invent prices. Use `dist_poc_percent` to contextualize your choice.
+OUTPUT INSTRUCTIONS:
+You must return a strictly formatted response adhering to the following schema. Use pipe operators (|) for multi-variable states.
+
+1. general_analysis: A highly dense, quantitative summary of institutional flow. Assess if volume supports the current price action and identify where price is relative to the Value Area.
+2. liquidity_state: Format as `STATUS: [price_to_va_status] | ACTION: [MEAN_REVERSION / BREAKOUT_DISCOVERY / RANGE_ROTATION]`.
+3. volume_momentum: Format as `VOL_VS_VMA: [Ratio/Difference] | STATE: [EXPANSION / CONTRACTION / ANOMALY]`.
+4. magnet_target: State the exact price of the primary liquidity draw (typically the `poc_price` if inside VA, or next high-volume node if outside). Format as `TARGET: [PRICE] | DISTANCE: [X]%`.
+5. bias: Must be exactly one of the following based strictly on the data: STRONGLY_BULLISH, BULLISH, NEUTRAL, BEARISH, STRONGLY_BEARISH.
+
+EXECUTION:
+Synthesize the provided JSON payload into the schema above. Track the math, map the liquidity.
 
 --- MARKET DATA ---
 {vol_payload}
@@ -464,32 +501,51 @@ Look strictly at the `poc_price`, `vah`, and `val` in the market data below. You
         vol_color = get_bias_color(vol_bias)
 
         vol_summary = (
+            f"[bold]General Analysis:[/bold]\n{vol_report.get('general_analysis', '')}\n\n"
             f"Bias: [{vol_color} bold]{vol_bias}[/{vol_color} bold]\n\n"
-            f"[bold]Liquidity State:[/bold]\n{vol_report.get('liquidity_state', '')}\n\n"
-            f"[bold]Volume Momentum:[/bold]\n{vol_report.get('volume_momentum', '')}\n\n"
-            f"[bold]Magnet Target:[/bold]\n{vol_report.get('magnet_target', '')}"
+            f"[bold]Liquidity State:[/bold]\n{format_pipe_string(vol_report.get('liquidity_state', ''))}\n\n"
+            f"[bold]Volume Momentum:[/bold]\n{format_pipe_string(vol_report.get('volume_momentum', ''))}\n\n"
+            f"[bold]Magnet Target:[/bold]\n{format_pipe_string(vol_report.get('magnet_target', ''))}"
         )
 
         console.print(Panel(vol_summary, title="[Volume & Liquidity Agent]", border_style=vol_color, box=box.ROUNDED, expand=False))
 
         # --- Agent 3: Lead Market Strategist ---
-        agent3_prompt = (
-            "You are the Lead Portfolio Manager. Synthesize Agent 1 and 2's reports. "
-            "Technical Synthesis: State explicitly if the TA and Volume reports are in confluence or contradiction. "
-            "Risk Profile: Evaluate Risk-to-Reward by comparing the distance to Agent 1's nearest structural threat vs Agent 2's magnet target. "
-            "Confidence Score: Assign an integer from 0 to 100 representing the probability of a successful trade. High confluence and excellent R:R should score above 80. Contradictions must score below 50. "
-            "Final Verdict: Select exactly one: GO LONG, GO SHORT, or SIT ON HANDS. If there is contradiction, poor R:R, or the confidence score is below 70, you MUST select SIT ON HANDS.\n\n"
-            "Return a strict JSON object with EXACTLY these keys: \n"
-            "- technical_synthesis (string)\n"
-            "- risk_profile (string)\n"
-            "- confidence_score (integer 0-100)\n"
-            "- final_verdict (string: GO LONG, GO SHORT, or SIT ON HANDS)\n\n"
-            f"--- SUB-AGENT REPORTS ---\n"
-            f"Technical Agent Report:\n{json.dumps(tech_report, indent=2)}\n\n"
-            f"Volume Agent Report:\n{json.dumps(vol_report, indent=2)}\n\n"
-            f"--- CURRENT 15m MARKET DATA (For Context) ---\n"
-            f"Price: ${data_15m.get('price', 0)}"
-        )
+        agent3_prompt = f"""SYSTEM PROMPT:
+You are the Lead Portfolio Manager and Execution Strategist for a deterministic Quantitative AI Execution Engine.
+You do NOT look at raw market data. Your sole function is to synthesize the structured reports from the Technical Analyst (Agent 1) and the Volume & Liquidity Analyst (Agent 2).
+
+YOUR PRIORITIES:
+1. Capital Preservation: Any conflict between Macro/Micro timeframes or Technicals/Volume equals an immediate stand-down.
+2. Confluence Validation: For an execution command, Agent 1 and Agent 2 must align in their Biases (e.g., both Bullish/Strongly Bullish).
+3. Risk-to-Reward (R:R) Asymmetry: Price must be optimally positioned against structural invalidation levels (Agent 1's key levels) with a clear path to liquidity targets (Agent 2's magnet).
+
+OUTPUT INSTRUCTIONS:
+Return a definitive execution command adhering to the following schema:
+
+1. technical_synthesis: A brutal, 2-3 sentence cross-examination of Agent 1 and Agent 2's reports. Identify structural confluences or critical failures.
+2. risk_profile: Define the exact R:R landscape. Reference Agent 1's `calculated_support/resistance` as hard stop parameters and Agent 2's `magnet_target` as the primary take-profit horizon. State whether the risk is ASYMMETRIC (favorable) or TOXIC (unfavorable).
+3. confidence_score: Integer from 0 to 100. (Score < 60 MUST result in SIT ON HANDS. Score > 80 required for STRONGLY directional executions).
+4. final_verdict: Must be EXACTLY ONE of the following literals: "GO LONG", "GO SHORT", "SIT ON HANDS".
+
+EXECUTION LOGIC:
+If Timeframes contradict -> SIT ON HANDS.
+If Volume is contracting while Price tests Resistance -> SIT ON HANDS.
+If Agent 1 Bias = NEUTRAL or Agent 2 Bias = NEUTRAL -> SIT ON HANDS.
+If Technicals and Flow align perfectly with Asymmetric Risk -> GO LONG / GO SHORT.
+
+Be ruthless. Protect the capital.
+
+--- SUB-AGENT REPORTS ---
+Technical Agent Report:
+{json.dumps(tech_report, indent=2)}
+
+Volume Agent Report:
+{json.dumps(vol_report, indent=2)}
+
+--- CURRENT 15m MARKET DATA (For Context) ---
+Price: ${data_15m.get('price', 0)}
+"""
 
         with console.status("[bold cyan]Agent 3 (Lead Market Strategist) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
             agent3_response = client.models.generate_content(
