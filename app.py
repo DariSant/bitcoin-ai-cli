@@ -32,43 +32,23 @@ app = typer.Typer(help="Bitcoin AI CLI Tool")
 
 # --- Global AI Schemas & Helpers ---
 
-class Agent1Schema(typing.TypedDict):
-    bias: str
-    analysis: str
-    confidence_score: int
-    timeframe_alignment: bool
-    nearest_support: float
-    nearest_resistance: float
-    distance_to_144_ema_percent: float
-    current_atr_14: float
+class Agent1TechSchema(typing.TypedDict):
+    bias: typing.Literal["BULLISH", "BEARISH", "NEUTRAL"]
+    trend_state: str
+    momentum_divergence: str
+    key_level_interaction: str
 
-class Agent2Schema(typing.TypedDict):
-    bias: str
-    analysis: str
-    confidence_score: int
-    timeframe_alignment: bool
-    price_to_value_area_status: str
-    distance_to_poc_percent: float
-    volume_vs_20ema: str
+class Agent2VolumeSchema(typing.TypedDict):
+    bias: typing.Literal["BULLISH", "BEARISH", "NEUTRAL"]
+    liquidity_state: str
+    volume_momentum: str
+    magnet_target: str
 
-class Agent3Schema(typing.TypedDict):
-    symbol: str
-    reasoning: str
-    operative: str
-    order_type: str
-    system_confidence_score: int
-    risk_allocation_percent: float
-    entry_price: float
-    atr_multiplier: float
-    risk_reward_ratio: float
-    ttl_hours: int
-
-class Agent3AnalyzeSchema(typing.TypedDict):
-    symbol: str
-    macro_thesis: str
-    key_danger_zones: str
-    forward_outlook: str
-    operative: str
+class Agent3ManagerSchema(typing.TypedDict):
+    technical_synthesis: str
+    risk_profile: str
+    confidence_score: int # Must be an integer between 0 and 100
+    final_verdict: typing.Literal["GO LONG", "GO SHORT", "SIT ON HANDS"]
 
 def get_bias_color(bias: str) -> str:
     if bias in ("STRONGLY_BULLISH", "BULLISH"):
@@ -149,6 +129,10 @@ def fetch_and_analyze(exchange, symbol: str, timeframe: str) -> dict:
     # Calculate ATR (Volatility)
     df['ATR_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
 
+    # Calculate Structural Levels (Swing High / Swing Low)
+    df['swing_high'] = df['high'].rolling(20).max()
+    df['swing_low'] = df['low'].rolling(20).min()
+
     # Calculate Volume Profile Point of Control (POC) and Value Area
     # Create 10 equal price bins based on the close column
     bins = pd.cut(df['close'], bins=10)
@@ -183,7 +167,7 @@ def fetch_and_analyze(exchange, symbol: str, timeframe: str) -> dict:
     # Check for NaNs on required indicators in the last row
     last_row = df.iloc[-1]
 
-    if pd.isna(last_row['EMA_144']) or pd.isna(last_row['RSI_13']) or pd.isna(last_row['RSI_47']) or pd.isna(last_row['VMA_20']) or pd.isna(last_row['ATR_14']):
+    if pd.isna(last_row['EMA_144']) or pd.isna(last_row['RSI_13']) or pd.isna(last_row['RSI_47']) or pd.isna(last_row['VMA_20']) or pd.isna(last_row['ATR_14']) or pd.isna(last_row['swing_high']) or pd.isna(last_row['swing_low']):
         raise ValueError(f"Insufficient candle data fetched to calculate required technical and volume metrics for {timeframe} timeframe.")
 
     current_price = float(last_row['close'])
@@ -204,6 +188,8 @@ def fetch_and_analyze(exchange, symbol: str, timeframe: str) -> dict:
     # Return rounded values for the latest row
     return {
         'price': round(current_price, 2),
+        'calculated_resistance': round(float(last_row['swing_high']), 2),
+        'calculated_support': round(float(last_row['swing_low']), 2),
         'volume': round(float(last_row['volume']), 2),
         'vma_20': round(float(last_row['VMA_20']), 2),
         'poc_price': round(poc_price, 2),
@@ -327,21 +313,21 @@ def _run_operate(symbol: str = 'BTC/USDT'):
             raise typer.Exit()
 
         synthesis = data.get("agent_3_synthesis", {})
-        operative = synthesis.get("operative", "SIT ON HANDS")
+        final_verdict = synthesis.get("final_verdict", "SIT ON HANDS")
 
-        if operative == "SIT ON HANDS":
+        if final_verdict == "SIT ON HANDS":
             typer.secho("[yellow]Last analysis says that it is better not to operate given the actual market conditions.[/yellow]", fg=typer.colors.YELLOW)
             raise typer.Exit()
 
         # Display the strategist's analysis panel
         strategist_summary = (
-            f"[bold]Macro Thesis:[/bold]\n{synthesis.get('macro_thesis', '')}\n\n"
-            f"[bold]Key Danger Zones:[/bold]\n{synthesis.get('key_danger_zones', '')}\n\n"
-            f"[bold]Forward Outlook:[/bold]\n{synthesis.get('forward_outlook', '')}\n\n"
-            f"[bold]Operative:[/bold] {operative}"
+            f"[bold]Final Verdict:[/bold] {final_verdict}\n"
+            f"[bold]Confidence Score:[/bold] {synthesis.get('confidence_score', 0)}\n\n"
+            f"[bold]Technical Synthesis:[/bold]\n{synthesis.get('technical_synthesis', '')}\n\n"
+            f"[bold]Risk Profile:[/bold]\n{synthesis.get('risk_profile', '')}"
         )
 
-        console.print(Panel(strategist_summary, title="[Lead Market Strategist - Thesis]", border_style="magenta", box=box.ROUNDED, expand=False))
+        console.print(Panel(strategist_summary, title="[Lead Market Strategist - Synthesis]", border_style="magenta", box=box.ROUNDED, expand=False))
         console.print("[green]Proceeding to Agent 4 Execution...[/green]")
         return
 
@@ -381,38 +367,45 @@ def _run_analyze(symbol: str = 'BTC/USDT'):
         # Initialize the Google GenAI client
         client = genai.Client(api_key=api_key)
 
+        # --- THE DATA DIET: SPLITTING PAYLOADS ---
+        def extract_tech_data(d: dict) -> dict:
+            return {k: d.get(k) for k in ['price', 'ema_34', 'ema_89', 'ema_144', 'rsi_13', 'rsi_47', 'rsi_delta', 'calculated_support', 'calculated_resistance', 'dist_144_percent', 'atr_14']}
+
+        def extract_vol_data(d: dict) -> dict:
+            return {k: d.get(k) for k in ['price', 'volume', 'vma_20', 'poc_price', 'vah', 'val', 'va_status', 'dist_poc_percent']}
+
+        tech_payload = json.dumps({
+            "4H_Timeframe": extract_tech_data(data_4h),
+            "15m_Timeframe": extract_tech_data(data_15m)
+        }, indent=2)
+
+        vol_payload = json.dumps({
+            "4H_Timeframe": extract_vol_data(data_4h),
+            "15m_Timeframe": extract_vol_data(data_15m)
+        }, indent=2)
+
         # --- Agent 1: Technical Analyst ---
-        agent1_prompt = (
-            "You are the Technical Analysis Agent for an algorithmic trading system. "
-            "Your objective is to analyze the 15m and 4H timeframes using EMAs, RSI momentum, and Volatility (ATR). Do not consider volume. "
-            "Your specific duties: \n"
-            "1. Determine the trend bias strictly based on price action and EMA alignment.\n"
-            "2. Identify the nearest major support and resistance levels based on the EMAs.\n"
-            "3. Evaluate timeframe alignment (Does the 15m trend agree with the 4H?).\n"
-            "4. Assess mean reversion risk using the distance to the 144 EMA.\n\n"
-            "Return a strict JSON object with EXACTLY these keys: \n"
-            "- bias (string: STRONGLY_BULLISH, BULLISH, NEUTRAL, BEARISH, or STRONGLY_BEARISH)\n"
-            "- analysis (string: max 3 sentences summarizing momentum, EMAs, and mean reversion risk)\n"
-            "- confidence_score (integer: 0-100)\n"
-            "- timeframe_alignment (boolean: true if 15m and 4H align, false otherwise)\n"
-            "- nearest_support (float: price level)\n"
-            "- nearest_resistance (float: price level)\n"
-            "- distance_to_144_ema_percent (float)\n"
-            "- current_atr_14 (float)\n\n"
-            f"--- MARKET DATA ---\n"
-            f"4H Data: Price: ${data_4h.get('price', 0)}, EMA(34,89,144): [{data_4h.get('ema_34', 0)}, {data_4h.get('ema_89', 0)}, {data_4h.get('ema_144', 0)}], "
-            f"RSI(13,47): [{data_4h.get('rsi_13', 0)}, {data_4h.get('rsi_47', 0)}], RSI Delta: {data_4h.get('rsi_delta', 0)}, "
-            f"ATR(14): {data_4h.get('atr_14', 0)}, Dist to 144 EMA: {data_4h.get('dist_144_percent', 0)}%\n"
-            f"15m Data: Price: ${data_15m.get('price', 0)}, EMA(34,89,144): [{data_15m.get('ema_34', 0)}, {data_15m.get('ema_89', 0)}, {data_15m.get('ema_144', 0)}], "
-            f"RSI(13,47): [{data_15m.get('rsi_13', 0)}, {data_15m.get('rsi_47', 0)}], RSI Delta: {data_15m.get('rsi_delta', 0)}, "
-            f"ATR(14): {data_15m.get('atr_14', 0)}, Dist to 144 EMA: {data_15m.get('dist_144_percent', 0)}%"
-        )
+        # 2. The Optimized Standard Operating Procedure (SOP) Prompt
+        agent1_prompt = f"""You are the Lead Technical Analyst for a quantitative trading desk. Your objective is precise, data-driven analysis.
+
+### 1. Trend State
+Analyze the alignment of the fast EMA (34) against the slow EMAs (89, 144) across the 15m and 4H timeframes. State explicitly if they are in confluence or contradiction.
+
+### 2. Momentum
+Analyze the RSI (13, 47) and rsi_delta. State explicitly if momentum is overbought, oversold, or diverging.
+
+### 3. Key Levels
+Look strictly at the `calculated_support` and `calculated_resistance` in the market data below. You MUST select the nearest structural threat from these lists and explain why. Do not invent prices.
+
+--- MARKET DATA ---
+{tech_payload}
+"""
 
         with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
             agent1_response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=agent1_prompt,
-                config={"response_mime_type": "application/json", "response_schema": Agent1Schema}
+                config={"response_mime_type": "application/json", "response_schema": Agent1TechSchema}
             )
 
         try:
@@ -427,46 +420,36 @@ def _run_analyze(symbol: str = 'BTC/USDT'):
         tech_color = get_bias_color(tech_bias)
 
         tech_summary = (
-            f"Bias: [{tech_color} bold]{tech_bias}[/{tech_color} bold]\n"
-            f"Confidence: {tech_report.get('confidence_score', 0)}%\n"
-            f"Support: ${tech_report.get('nearest_support', 0)} | Resistance: ${tech_report.get('nearest_resistance', 0)}\n\n"
-            f"Analysis: {tech_report.get('analysis', '')}"
+            f"Bias: [{tech_color} bold]{tech_bias}[/{tech_color} bold]\n\n"
+            f"[bold]Trend State:[/bold]\n{tech_report.get('trend_state', '')}\n\n"
+            f"[bold]Momentum Divergence:[/bold]\n{tech_report.get('momentum_divergence', '')}\n\n"
+            f"[bold]Key Level Interaction:[/bold]\n{tech_report.get('key_level_interaction', '')}"
         )
 
         console.print(Panel(tech_summary, title="[Technical Analysis Agent]", border_style=tech_color, box=box.ROUNDED, expand=False))
 
 
         # --- Agent 2: Liquidity/Volume Analyst ---
-        agent2_prompt = (
-            "You are the Volume Analysis Agent for an algorithmic trading system. "
-            "Your objective is to analyze the 15m and 4H timeframes using Total Volume, Volume Moving Average (VMA), and Volume Profile (POC, VAH, VAL). "
-            "Your specific duties: \n"
-            "1. Determine the volume bias based on momentum and Value Area positioning.\n"
-            "2. Analyze price interaction with the Value Area (e.g., inside value, rejecting boundaries, breaking out).\n"
-            "3. Evaluate timeframe alignment (Does the 15m volume profile agree with the 4H?).\n"
-            "4. Assess mean reversion risk using the percentage distance to the Point of Control (POC).\n\n"
-            "Return a strict JSON object with EXACTLY these keys: \n"
-            "- bias (string: STRONGLY_BULLISH, BULLISH, NEUTRAL, BEARISH, or STRONGLY_BEARISH)\n"
-            "- analysis (string: max 3 sentences summarizing volume strength, POC interaction, and breakout/mean-reversion conditions)\n"
-            "- confidence_score (integer: 0-100)\n"
-            "- timeframe_alignment (boolean: true if 15m and 4H align, false otherwise)\n"
-            "- price_to_value_area_status (string: INSIDE_VALUE, BREAKING_ABOVE_VAH, BREAKING_BELOW_VAL, REJECTING_VAH, or REJECTING_VAL)\n"
-            "- distance_to_poc_percent (float)\n"
-            "- volume_vs_20ema (string: ABOVE_AVERAGE or BELOW_AVERAGE)\n\n"
-            f"--- MARKET DATA ---\n"
-            f"4H Data: Price: ${data_4h.get('price', 0)}, Volume: {data_4h.get('volume', 0)} / VMA(20): {data_4h.get('vma_20', 0)}, "
-            f"POC: ${data_4h.get('poc_price', 0)}, VAL-VAH: ${data_4h.get('val', 0)} - ${data_4h.get('vah', 0)}, "
-            f"VA Status: {data_4h.get('va_status', 'UNKNOWN')}, Dist to POC: {data_4h.get('dist_poc_percent', 0)}%\n"
-            f"15m Data: Price: ${data_15m.get('price', 0)}, Volume: {data_15m.get('volume', 0)} / VMA(20): {data_15m.get('vma_20', 0)}, "
-            f"POC: ${data_15m.get('poc_price', 0)}, VAL-VAH: ${data_15m.get('val', 0)} - ${data_15m.get('vah', 0)}, "
-            f"VA Status: {data_15m.get('va_status', 'UNKNOWN')}, Dist to POC: {data_15m.get('dist_poc_percent', 0)}%"
-        )
+        agent2_prompt = f"""You are the Lead Volume & Liquidity Analyst for a quantitative trading desk. Your objective is precise, data-driven analysis of institutional capital flows.
+
+### 1. Liquidity State
+Look strictly at the `va_status` and the `vah` and `val` prices. Is the asset in price discovery (breaking out) or chopping inside fair value? State this explicitly.
+
+### 2. Volume Momentum
+Compare the latest `volume` against the `vma_20`. State explicitly if volume is expanding (validating the current price move) or contracting/below average.
+
+### 3. Magnet Target
+Look strictly at the `poc_price`, `vah`, and `val` in the market data below. You MUST select the single most likely liquidity node that price will be drawn to next. Do not invent prices. Use `dist_poc_percent` to contextualize your choice.
+
+--- MARKET DATA ---
+{vol_payload}
+"""
 
         with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
             agent2_response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=agent2_prompt,
-                config={"response_mime_type": "application/json", "response_schema": Agent2Schema}
+                config={"response_mime_type": "application/json", "response_schema": Agent2VolumeSchema}
             )
 
         try:
@@ -481,39 +464,38 @@ def _run_analyze(symbol: str = 'BTC/USDT'):
         vol_color = get_bias_color(vol_bias)
 
         vol_summary = (
-            f"Bias: [{vol_color} bold]{vol_bias}[/{vol_color} bold]\n"
-            f"Confidence: {vol_report.get('confidence_score', 0)}%\n"
-            f"VA Status: {vol_report.get('price_to_value_area_status', 'UNKNOWN')}\n\n"
-            f"Analysis: {vol_report.get('analysis', '')}"
+            f"Bias: [{vol_color} bold]{vol_bias}[/{vol_color} bold]\n\n"
+            f"[bold]Liquidity State:[/bold]\n{vol_report.get('liquidity_state', '')}\n\n"
+            f"[bold]Volume Momentum:[/bold]\n{vol_report.get('volume_momentum', '')}\n\n"
+            f"[bold]Magnet Target:[/bold]\n{vol_report.get('magnet_target', '')}"
         )
 
         console.print(Panel(vol_summary, title="[Volume & Liquidity Agent]", border_style=vol_color, box=box.ROUNDED, expand=False))
 
         # --- Agent 3: Lead Market Strategist ---
         agent3_prompt = (
-            "You are a Lead Market Strategist. "
-            f"Synthesize the sub-agent reports for {symbol}. "
-            "Do NOT output trading parameters. "
-            "Provide a macro_thesis (trend direction), key_danger_zones (liquidity traps), a forward_outlook (what confirms a structural shift), and an operative."
-            "\nDetermine the 'operative' (ENTER LONG, ENTER SHORT, or SIT ON HANDS). If the agents heavily conflict or timeframe alignment is false across the board, you MUST output 'SIT ON HANDS'."
-            "\n\nReturn a strict JSON object with EXACTLY these keys: \n"
-            "- symbol (string)\n"
-            "- macro_thesis (string)\n"
-            "- key_danger_zones (string)\n"
-            "- forward_outlook (string)\n"
-            "- operative (string: ENTER LONG, ENTER SHORT, or SIT ON HANDS)\n\n"
+            "You are the Lead Portfolio Manager. Synthesize Agent 1 and 2's reports. "
+            "Technical Synthesis: State explicitly if the TA and Volume reports are in confluence or contradiction. "
+            "Risk Profile: Evaluate Risk-to-Reward by comparing the distance to Agent 1's nearest structural threat vs Agent 2's magnet target. "
+            "Confidence Score: Assign an integer from 0 to 100 representing the probability of a successful trade. High confluence and excellent R:R should score above 80. Contradictions must score below 50. "
+            "Final Verdict: Select exactly one: GO LONG, GO SHORT, or SIT ON HANDS. If there is contradiction, poor R:R, or the confidence score is below 70, you MUST select SIT ON HANDS.\n\n"
+            "Return a strict JSON object with EXACTLY these keys: \n"
+            "- technical_synthesis (string)\n"
+            "- risk_profile (string)\n"
+            "- confidence_score (integer 0-100)\n"
+            "- final_verdict (string: GO LONG, GO SHORT, or SIT ON HANDS)\n\n"
             f"--- SUB-AGENT REPORTS ---\n"
             f"Technical Agent Report:\n{json.dumps(tech_report, indent=2)}\n\n"
             f"Volume Agent Report:\n{json.dumps(vol_report, indent=2)}\n\n"
             f"--- CURRENT 15m MARKET DATA (For Context) ---\n"
-            f"Price: ${data_15m.get('price', 0)}, ATR(14): ${data_15m.get('atr_14', 0)}, POC: ${data_15m.get('poc_price', 0)}"
+            f"Price: ${data_15m.get('price', 0)}"
         )
 
         with console.status("[bold cyan]Agent 3 (Lead Market Strategist) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
             agent3_response = client.models.generate_content(
                 model="gemini-3.1-flash-lite-preview",
                 contents=agent3_prompt,
-                config={"response_mime_type": "application/json", "response_schema": Agent3AnalyzeSchema}
+                config={"response_mime_type": "application/json", "response_schema": Agent3ManagerSchema}
             )
 
         try:
@@ -524,14 +506,15 @@ def _run_analyze(symbol: str = 'BTC/USDT'):
             raise typer.Exit(code=1)
 
         # Print the Lead Market Strategist Panel cleanly
+        final_verdict = strategist_report.get('final_verdict', 'SIT ON HANDS')
         strategist_summary = (
-            f"[bold]Macro Thesis:[/bold]\n{strategist_report.get('macro_thesis', '')}\n\n"
-            f"[bold]Key Danger Zones:[/bold]\n{strategist_report.get('key_danger_zones', '')}\n\n"
-            f"[bold]Forward Outlook:[/bold]\n{strategist_report.get('forward_outlook', '')}\n\n"
-            f"[bold]Operative:[/bold] {strategist_report.get('operative', 'SIT ON HANDS')}"
+            f"[bold]Final Verdict:[/bold] {final_verdict}\n"
+            f"[bold]Confidence Score:[/bold] {strategist_report.get('confidence_score', 0)}\n\n"
+            f"[bold]Technical Synthesis:[/bold]\n{strategist_report.get('technical_synthesis', '')}\n\n"
+            f"[bold]Risk Profile:[/bold]\n{strategist_report.get('risk_profile', '')}"
         )
 
-        console.print(Panel(strategist_summary, title="[Lead Market Strategist - Thesis]", border_style="magenta", box=box.ROUNDED, expand=False))
+        console.print(Panel(strategist_summary, title="[Lead Market Strategist - Synthesis]", border_style="magenta", box=box.ROUNDED, expand=False))
 
         filepath = log_execution("analyze", symbol, data_4h, data_15m, tech_report, vol_report, strategist_report)
         console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
