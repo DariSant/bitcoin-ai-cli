@@ -1,0 +1,9 @@
+{
+  "verdict": "GO LONG",
+  "account_balance_usdt": 10000.0,
+  "risk_per_trade_percent": 1.0,
+  "current_price": 70000.0,
+  "atr_14": 1000.0,
+  "agent_1_threat_level": 68500.0,
+  "agent_2_magnet_target": 74000.0
+}
