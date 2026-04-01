@@ -521,13 +521,13 @@ def _run_mock(filename: str):
 
     # Print Agent 4 Panel
     operator_summary = (
-        f"[{panel_color} bold]Verdict:[/bold] {verdict}\n\n"
-        f"[{panel_color} bold]Order Type:[/bold] {operator_report.get('order_type', '')}\n"
-        f"[{panel_color} bold]Entry Price:[/bold] ${operator_report.get('entry_price', 0):,.2f}\n"
-        f"[{panel_color} bold]Stop Loss:[/bold] ${operator_report.get('stop_loss', 0):,.2f}\n"
-        f"[{panel_color} bold]Take Profit:[/bold] ${operator_report.get('take_profit', 0):,.2f}\n"
-        f"[{panel_color} bold]Risk/Reward Ratio:[/bold] {operator_report.get('risk_reward_ratio', 0):.2f}\n"
-        f"[{panel_color} bold]Position Size USD:[/bold] ${operator_report.get('position_size_usd', 0):,.2f}"
+        f"[bold {panel_color}]Verdict:[/] {verdict}\n\n"
+        f"[bold {panel_color}]Order Type:[/] {operator_report.get('order_type', '')}\n"
+        f"[bold {panel_color}]Entry Price:[/] ${operator_report.get('entry_price', 0):,.2f}\n"
+        f"[bold {panel_color}]Stop Loss:[/] ${operator_report.get('stop_loss', 0):,.2f}\n"
+        f"[bold {panel_color}]Take Profit:[/] ${operator_report.get('take_profit', 0):,.2f}\n"
+        f"[bold {panel_color}]Risk/Reward Ratio:[/] {operator_report.get('risk_reward_ratio', 0):.2f}\n"
+        f"[bold {panel_color}]Position Size USD:[/] ${operator_report.get('position_size_usd', 0):,.2f}"
     )
 
     console.print(Panel(operator_summary, title="[Agent 4: Execution Ticket]", border_style=panel_color, box=box.ROUNDED, expand=False))
