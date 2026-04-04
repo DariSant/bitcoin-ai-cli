@@ -103,6 +103,127 @@ def format_pipe_string(text: str) -> str:
     # Rejoin with newlines and bullet points
     return "\n".join(f"  • {seg}" for seg in segments)
 
+
+def _check_open_positions(symbol: str) -> None:
+    """
+    Pre-flight check for open positions. Reads output_alpha/{symbol}_paper_ledger.json.
+    If OPEN, fetches recent 15m candles to see if TP/SL was hit.
+    If hit, logs to history and proceeds. If not hit, halts execution.
+    """
+    clean_symbol = symbol.replace("/", "_")
+    ledger_path = f"output_alpha/{clean_symbol}_paper_ledger.json"
+    history_path = f"output_alpha/{clean_symbol}_trade_history.json"
+
+    if not os.path.exists(ledger_path):
+        return
+
+    try:
+        with open(ledger_path, "r") as f:
+            ledger = json.load(f)
+    except json.JSONDecodeError:
+        return
+
+    if ledger.get("status") != "OPEN":
+        return
+
+    entry_timestamp = ledger.get("entry_timestamp")
+    if not entry_timestamp:
+        return
+
+    try:
+        exchange = ccxt.binance()
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe="15m", limit=100)
+    except Exception as e:
+        typer.secho(f"\n❌ Error fetching data to verify open positions: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    verdict = ledger.get("verdict", "")
+    entry_price = float(ledger.get("entry_price", 0))
+    stop_loss = float(ledger.get("stop_loss", 0))
+    take_profit = float(ledger.get("take_profit", 0))
+    pos_size_usd = float(ledger.get("position_size_usd", 0))
+
+    trade_closed = False
+    result = ""
+    pnl_usd = 0.0
+
+    for candle in ohlcv:
+        # candle: [timestamp, open, high, low, close, volume]
+        ts = candle[0] / 1000.0 # Convert to seconds
+        if ts <= entry_timestamp:
+            continue
+
+        high = float(candle[2])
+        low = float(candle[3])
+
+        if verdict == "GO LONG":
+            if low <= stop_loss:
+                result = "LOSS"
+                trade_closed = True
+            elif high >= take_profit:
+                result = "WIN"
+                trade_closed = True
+        elif verdict == "GO SHORT":
+            if high >= stop_loss:
+                result = "LOSS"
+                trade_closed = True
+            elif low <= take_profit:
+                result = "WIN"
+                trade_closed = True
+
+        if trade_closed:
+            break
+
+    if trade_closed:
+        # Calculate PnL
+        if result == "WIN":
+            if verdict == "GO LONG":
+                pnl_usd = pos_size_usd * ((take_profit - entry_price) / entry_price)
+            else:
+                pnl_usd = pos_size_usd * ((entry_price - take_profit) / entry_price)
+        else: # LOSS
+            # Expected -$100 Risk, but lets calculate based on strict % movement for accuracy
+            if verdict == "GO LONG":
+                pnl_usd = pos_size_usd * ((stop_loss - entry_price) / entry_price)
+            else:
+                pnl_usd = pos_size_usd * ((entry_price - stop_loss) / entry_price)
+
+        ledger["status"] = "CLOSED"
+        ledger["result"] = result
+        ledger["pnl_usd"] = round(pnl_usd, 2)
+        ledger["close_timestamp"] = datetime.now().timestamp()
+
+        # Move to history
+        history = []
+        if os.path.exists(history_path):
+            try:
+                with open(history_path, "r") as f:
+                    history = json.load(f)
+            except:
+                pass
+
+        history.append(ledger)
+        with open(history_path, "w") as f:
+            json.dump(history, f, indent=2)
+
+        # Clear ledger
+        os.remove(ledger_path)
+
+        console.print(Panel(
+            f"[bold]Trade Closed:[/bold] {result}\n[bold]PnL:[/bold] ${pnl_usd:,.2f}",
+            title="[Position Update]", border_style="cyan", box=box.ROUNDED, expand=False
+        ))
+        # Allow pipeline to proceed
+        return
+
+    else:
+        console.print(Panel(
+            f"[yellow]Position currently OPEN. Waiting for TP/SL. Execution halted.[/yellow]",
+            title="[State Check]", border_style="yellow", box=box.ROUNDED, expand=False
+        ))
+        raise typer.Exit()
+
+
 def log_execution(command_name: str, symbol: str, data_4h: dict, data_15m: dict, agent1_report: dict = None, agent2_report: dict = None, agent3_report: dict = None) -> str:
     """
     Universally log execution state to a JSON footprint in output_alpha/.
@@ -308,6 +429,8 @@ def _run_operate(symbol: str = 'BTC/USDT'):
     """
     Internal helper to execute trading operations based on recent analysis.
     """
+    _check_open_positions(symbol)
+
     analyze_dir = pathlib.Path("output_alpha/analyze")
 
     if not analyze_dir.exists():
@@ -412,9 +535,9 @@ def _run_operate(symbol: str = 'BTC/USDT'):
 
         agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
 
-        with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
+        with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution... (Model: gemini-3.1-flash-lite)[/bold cyan]", spinner="dots"):
             agent4_response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.1-flash-lite",
                 contents=agent4_prompt,
                 config={"response_mime_type": "application/json", "response_schema": Agent4OperatorSchema}
             )
@@ -460,6 +583,29 @@ def _run_operate(symbol: str = 'BTC/USDT'):
 
         console.print(f"[dim]💾 Execution Footprint saved to: {filepath}[/dim]")
 
+
+        # --- Save Active Ledger (paper_ledger.json) ---
+        clean_symbol = symbol.replace("/", "_")
+        ledger_path = f"output_alpha/{clean_symbol}_paper_ledger.json"
+
+        ledger_entry = {
+            "symbol": symbol,
+            "status": "OPEN",
+            "entry_timestamp": now.timestamp(),
+            "verdict": operator_payload["verdict"],
+            "order_type": operator_report.get("order_type"),
+            "entry_price": operator_report.get("entry_price"),
+            "stop_loss": operator_report.get("stop_loss"),
+            "take_profit": operator_report.get("take_profit"),
+            "risk_reward_ratio": operator_report.get("risk_reward_ratio"),
+            "position_size_usd": operator_report.get("position_size_usd")
+        }
+
+        with open(ledger_path, "w") as file:
+            json.dump(ledger_entry, file, indent=2)
+
+        console.print(f"[dim]💾 Active Ledger updated: {ledger_path}[/dim]")
+
         return
 
     except typer.Exit:
@@ -503,9 +649,9 @@ def _run_mock(filename: str):
     client = genai.Client(api_key=api_key)
     agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
 
-    with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution from Mock... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
+    with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution from Mock... (Model: gemini-3.1-flash-lite)[/bold cyan]", spinner="dots"):
         agent4_response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             contents=agent4_prompt,
             config={"response_mime_type": "application/json", "response_schema": Agent4OperatorSchema}
         )
@@ -538,6 +684,8 @@ def _run_analyze(symbol: str = 'BTC/USDT'):
     Internal helper to fetch MTF (4h, 15m) data for a given symbol and execute trading analysis via AI agents.
     Outputs the Lead Market Strategist thesis.
     """
+    _check_open_positions(symbol)
+
     # Ensure the Gemini API key is loaded securely
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -606,9 +754,9 @@ Synthesize the provided JSON payload into the schema above. Prioritize mathemati
 {tech_payload}
 """
 
-        with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
+        with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-3.1-flash-lite)[/bold cyan]", spinner="dots"):
             agent1_response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.1-flash-lite",
                 contents=agent1_prompt,
                 config={"response_mime_type": "application/json", "response_schema": Agent1TechSchema}
             )
@@ -662,9 +810,9 @@ Synthesize the provided JSON payload into the schema above. Track the math, map 
 {vol_payload}
 """
 
-        with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
+        with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-3.1-flash-lite)[/bold cyan]", spinner="dots"):
             agent2_response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.1-flash-lite",
                 contents=agent2_prompt,
                 config={"response_mime_type": "application/json", "response_schema": Agent2VolumeSchema}
             )
@@ -725,9 +873,9 @@ Volume Agent Report:
 Price: ${data_15m.get('price', 0)}
 """
 
-        with console.status("[bold cyan]Agent 3 (Lead Market Strategist) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
+        with console.status("[bold cyan]Agent 3 (Lead Market Strategist) Thinking... (Model: gemini-3.1-flash-lite)[/bold cyan]", spinner="dots"):
             agent3_response = client.models.generate_content(
-                model="gemini-3.1-flash-lite-preview",
+                model="gemini-3.1-flash-lite",
                 contents=agent3_prompt,
                 config={"response_mime_type": "application/json", "response_schema": Agent3ManagerSchema}
             )
@@ -815,6 +963,7 @@ def auto_command(symbol: str = typer.Argument("BTC/USDT")):
     """
     Execute the entire sequential pipeline: Status -> Analyze -> Operate.
     """
+    _check_open_positions(symbol)
     _run_status(symbol)
     _run_analyze(symbol)
     _run_operate(symbol)
@@ -835,7 +984,7 @@ def ask(question: str):
         client = genai.Client(api_key=api_key)
 
         # Define the specific Gemma model we are using
-        model_id = "gemma-3-12b-it"
+        model_id = "gemini-3.1-flash-lite"
 
         typer.secho(f"Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
 
