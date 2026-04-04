@@ -60,6 +60,30 @@ class Agent4OperatorSchema(typing.TypedDict):
     risk_reward_ratio: float
     position_size_usd: float
 
+AGENT4_SYSTEM_PROMPT = """SYSTEM PROMPT:
+You are The Operator, the final execution tier of a quantitative trading system.
+You are a pure mathematical logic gate. You do not analyze the market; you calculate exact risk perimeters and position sizes based on the Portfolio Manager's verdict and the provided data payload.
+
+DATA INPUTS PROVIDED:
+`verdict` (GO LONG or GO SHORT), `account_balance_usdt`, `risk_per_trade_percent`, `current_price`, `atr_14`, `agent_1_threat_level` (invalidation price), `agent_2_magnet_target` (take profit price).
+
+OUTPUT INSTRUCTIONS:
+Calculate the execution parameters mathematically and return the strict schema:
+
+1. order_type: Based on current price vs entry, output "LIMIT" or "MARKET".
+2. entry_price: The exact price to execute the trade (usually `current_price` unless specifying a pullback limit).
+3. stop_loss: Calculate as `agent_1_threat_level` PLUS/MINUS a buffer of `0.5 * atr_14` (to avoid wicks).
+4. take_profit: Snap exactly to `agent_2_magnet_target`.
+5. risk_reward_ratio: Calculate absolute distance (Entry to TP) / absolute distance (Entry to SL). Format as a float with 2 decimals (e.g., 2.50).
+6. position_size_usd: Calculate maximum dollar risk using `(account_balance_usdt * (risk_per_trade_percent / 100))`. Divide this max dollar risk by the percentage distance from `entry_price` to `stop_loss` to get the total position size in USD.
+
+EXECUTION:
+Do not explain your math. Output only the calculated data schema. Precision is mandatory.
+
+--- OPERATOR PAYLOAD ---
+{payload}
+"""
+
 def get_bias_color(bias: str) -> str:
     if bias in ("STRONGLY_BULLISH", "BULLISH"):
         return "green"
@@ -386,29 +410,7 @@ def _run_operate(symbol: str = 'BTC/USDT'):
 
         client = genai.Client(api_key=api_key)
 
-        agent4_prompt = f"""SYSTEM PROMPT:
-You are The Operator, the final execution tier of a quantitative trading system.
-You are a pure mathematical logic gate. You do not analyze the market; you calculate exact risk perimeters and position sizes based on the Portfolio Manager's verdict and the provided data payload.
-
-DATA INPUTS PROVIDED:
-`verdict` (GO LONG or GO SHORT), `account_balance_usdt`, `risk_per_trade_percent`, `current_price`, `atr_14`, `agent_1_threat_level` (invalidation price), `agent_2_magnet_target` (take profit price).
-
-OUTPUT INSTRUCTIONS:
-Calculate the execution parameters mathematically and return the strict schema:
-
-1. order_type: Based on current price vs entry, output "LIMIT" or "MARKET".
-2. entry_price: The exact price to execute the trade (usually `current_price` unless specifying a pullback limit).
-3. stop_loss: Calculate as `agent_1_threat_level` PLUS/MINUS a buffer of `0.5 * atr_14` (to avoid wicks).
-4. take_profit: Snap exactly to `agent_2_magnet_target`.
-5. risk_reward_ratio: Calculate absolute distance (Entry to TP) / absolute distance (Entry to SL). Format as a float with 2 decimals (e.g., 2.50).
-6. position_size_usd: Calculate maximum dollar risk using `(account_balance_usdt * (risk_per_trade_percent / 100))`. Divide this max dollar risk by the percentage distance from `entry_price` to `stop_loss` to get the total position size in USD.
-
-EXECUTION:
-Do not explain your math. Output only the calculated data schema. Precision is mandatory.
-
---- OPERATOR PAYLOAD ---
-{json.dumps(operator_payload, indent=2)}
-"""
+        agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
 
         with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
             agent4_response = client.models.generate_content(
@@ -466,6 +468,69 @@ Do not explain your math. Output only the calculated data schema. Precision is m
         logging.error(f"Failed to read or parse analysis file {most_recent_file}", exc_info=True)
         typer.secho(f"\n❌ Error: Could not read analysis file. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
         raise typer.Exit(code=1)
+
+
+def _run_mock(filename: str):
+    """
+    Internal helper to feed a mock JSON payload directly to Agent 4 and display the Execution Ticket.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY environment variable is missing. Please set it in your .env file.")
+
+    # Read and validate the payload
+    filepath = pathlib.Path(f"mock_json/{filename}")
+    if not filepath.exists() or not filepath.is_file():
+        raise ValueError(f"File not found: {filepath}")
+
+    try:
+        with open(filepath, "r") as f:
+            operator_payload = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in payload file: {e}")
+
+    # Basic schema validation
+    required_keys = ["verdict", "account_balance_usdt", "risk_per_trade_percent", "current_price", "atr_14", "agent_1_threat_level", "agent_2_magnet_target"]
+    for key in required_keys:
+        if key not in operator_payload:
+            raise ValueError(f"Missing required key in payload: {key}")
+
+    verdict = operator_payload.get("verdict", "")
+    if verdict not in ("GO LONG", "GO SHORT"):
+        raise ValueError(f"Invalid verdict '{verdict}'. Must be 'GO LONG' or 'GO SHORT'.")
+
+    # Call Agent 4
+    client = genai.Client(api_key=api_key)
+    agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
+
+    with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution from Mock... (Model: gemini-2.5-flash)[/bold cyan]", spinner="dots"):
+        agent4_response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=agent4_prompt,
+            config={"response_mime_type": "application/json", "response_schema": Agent4OperatorSchema}
+        )
+
+    try:
+        operator_report = json.loads(agent4_response.text)
+    except json.JSONDecodeError as e:
+        logging.error(f"Failed to parse Agent 4 (Operator) mock JSON output. Raw text: {agent4_response.text}", exc_info=True)
+        raise RuntimeError(f"AI processing failed to return valid JSON: {e}")
+
+    # Set styling dynamically based on the verdict
+    panel_color = "green" if verdict == "GO LONG" else "red"
+
+    # Print Agent 4 Panel
+    operator_summary = (
+        f"[bold {panel_color}]Verdict:[/] {verdict}\n\n"
+        f"[bold {panel_color}]Order Type:[/] {operator_report.get('order_type', '')}\n"
+        f"[bold {panel_color}]Entry Price:[/] ${operator_report.get('entry_price', 0):,.2f}\n"
+        f"[bold {panel_color}]Stop Loss:[/] ${operator_report.get('stop_loss', 0):,.2f}\n"
+        f"[bold {panel_color}]Take Profit:[/] ${operator_report.get('take_profit', 0):,.2f}\n"
+        f"[bold {panel_color}]Risk/Reward Ratio:[/] {operator_report.get('risk_reward_ratio', 0):.2f}\n"
+        f"[bold {panel_color}]Position Size USD:[/] ${operator_report.get('position_size_usd', 0):,.2f}"
+    )
+
+    console.print(Panel(operator_summary, title="[Agent 4: Execution Ticket]", border_style=panel_color, box=box.ROUNDED, expand=False))
 
 
 def _run_analyze(symbol: str = 'BTC/USDT'):
@@ -723,6 +788,27 @@ def operate_command(symbol: str = typer.Argument("BTC/USDT")):
     Execute trading operations based on recent analysis.
     """
     _run_operate(symbol)
+
+@app.command("mock")
+def mock_command(filename: str = typer.Argument(..., help="The mock payload file name (e.g. mock_long.json)")):
+    """
+    Feed a mock JSON payload directly to Agent 4 (The Operator) for stress testing.
+    """
+    try:
+        _run_mock(filename)
+    except (RuntimeError, ValueError) as e:
+        logging.error(f"Mock command failed: {e}", exc_info=True)
+        console.print(Panel(f"[red]ERROR: {e}[/red]", title="[red]System Failure[/red]", border_style="red", box=box.ROUNDED, expand=False))
+        raise typer.Exit(code=1)
+    except genai.errors.APIError as e:
+        logging.error(f"Gemini API Error in mock command: {e}", exc_info=True)
+        console.print(Panel("[red]ERROR: AI processing failed. Check error.log for details.[/red]", title="[red]System Failure[/red]", border_style="red", box=box.ROUNDED, expand=False))
+        raise typer.Exit(code=1)
+    except Exception as e:
+        logging.error(f"Unexpected error in mock command: {e}", exc_info=True)
+        console.print(Panel("[red]ERROR: An unexpected failure occurred. Check error.log.[/red]", title="[red]System Failure[/red]", border_style="red", box=box.ROUNDED, expand=False))
+        raise typer.Exit(code=1)
+
 
 @app.command("auto")
 def auto_command(symbol: str = typer.Argument("BTC/USDT")):
