@@ -535,9 +535,9 @@ def _run_operate(symbol: str = 'BTC/USDT'):
 
         agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
 
-        with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution... (Model: gemini-3.1-flash-lite)[/bold cyan]", spinner="dots"):
+        with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
             agent4_response = client.models.generate_content(
-                model="gemini-3.1-flash-lite",
+                model="gemini-3.1-flash-lite-preview",
                 contents=agent4_prompt,
                 config={"response_mime_type": "application/json", "response_schema": Agent4OperatorSchema}
             )
@@ -649,9 +649,9 @@ def _run_mock(filename: str):
     client = genai.Client(api_key=api_key)
     agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
 
-    with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution from Mock... (Model: gemini-3.1-flash-lite)[/bold cyan]", spinner="dots"):
+    with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution from Mock... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
         agent4_response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
+            model="gemini-3.1-flash-lite-preview",
             contents=agent4_prompt,
             config={"response_mime_type": "application/json", "response_schema": Agent4OperatorSchema}
         )
@@ -754,9 +754,9 @@ Synthesize the provided JSON payload into the schema above. Prioritize mathemati
 {tech_payload}
 """
 
-        with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-3.1-flash-lite)[/bold cyan]", spinner="dots"):
+        with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
             agent1_response = client.models.generate_content(
-                model="gemini-3.1-flash-lite",
+                model="gemini-3.1-flash-lite-preview",
                 contents=agent1_prompt,
                 config={"response_mime_type": "application/json", "response_schema": Agent1TechSchema}
             )
@@ -810,9 +810,9 @@ Synthesize the provided JSON payload into the schema above. Track the math, map 
 {vol_payload}
 """
 
-        with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-3.1-flash-lite)[/bold cyan]", spinner="dots"):
+        with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
             agent2_response = client.models.generate_content(
-                model="gemini-3.1-flash-lite",
+                model="gemini-3.1-flash-lite-preview",
                 contents=agent2_prompt,
                 config={"response_mime_type": "application/json", "response_schema": Agent2VolumeSchema}
             )
@@ -873,9 +873,9 @@ Volume Agent Report:
 Price: ${data_15m.get('price', 0)}
 """
 
-        with console.status("[bold cyan]Agent 3 (Lead Market Strategist) Thinking... (Model: gemini-3.1-flash-lite)[/bold cyan]", spinner="dots"):
+        with console.status("[bold cyan]Agent 3 (Lead Market Strategist) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
             agent3_response = client.models.generate_content(
-                model="gemini-3.1-flash-lite",
+                model="gemini-3.1-flash-lite-preview",
                 contents=agent3_prompt,
                 config={"response_mime_type": "application/json", "response_schema": Agent3ManagerSchema}
             )
@@ -984,7 +984,7 @@ def ask(question: str):
         client = genai.Client(api_key=api_key)
 
         # Define the specific Gemma model we are using
-        model_id = "gemini-3.1-flash-lite"
+        model_id = "gemini-3.1-flash-lite-preview"
 
         typer.secho(f"Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
 
