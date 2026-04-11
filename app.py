@@ -52,38 +52,6 @@ class Agent3ManagerSchema(typing.TypedDict):
     risk_vector: str
     final_verdict: typing.Literal["GO LONG", "GO SHORT", "SIT ON HANDS"]
 
-class Agent4OperatorSchema(typing.TypedDict):
-    order_type: typing.Literal["LIMIT", "MARKET"]
-    entry_price: float
-    stop_loss: float
-    take_profit: float
-    risk_reward_ratio: float
-    position_size_usd: float
-
-AGENT4_SYSTEM_PROMPT = """SYSTEM PROMPT:
-You are The Operator, the final execution tier of a quantitative trading system.
-You are a pure mathematical logic gate. You do not analyze the market; you calculate exact risk perimeters and position sizes based on the Portfolio Manager's verdict and the provided data payload.
-
-DATA INPUTS PROVIDED:
-`verdict` (GO LONG or GO SHORT), `account_balance_usdt`, `risk_per_trade_percent`, `current_price`, `atr_14`, `agent_1_threat_level` (invalidation price), `agent_2_magnet_target` (take profit price).
-
-OUTPUT INSTRUCTIONS:
-Calculate the execution parameters mathematically and return the strict schema:
-
-1. order_type: Based on current price vs entry, output "LIMIT" or "MARKET".
-2. entry_price: The exact price to execute the trade (usually `current_price` unless specifying a pullback limit).
-3. stop_loss: Calculate as `agent_1_threat_level` PLUS/MINUS a buffer of `0.5 * atr_14` (to avoid wicks).
-4. take_profit: Snap exactly to `agent_2_magnet_target`.
-5. risk_reward_ratio: Calculate absolute distance (Entry to TP) / absolute distance (Entry to SL). Format as a float with 2 decimals (e.g., 2.50).
-6. position_size_usd: Calculate maximum dollar risk using `(account_balance_usdt * (risk_per_trade_percent / 100))`. Divide this max dollar risk by the percentage distance from `entry_price` to `stop_loss` to get the total position size in USD.
-
-EXECUTION:
-Do not explain your math. Output only the calculated data schema. Precision is mandatory.
-
---- OPERATOR PAYLOAD ---
-{payload}
-"""
-
 def get_bias_color(bias: str) -> str:
     if bias in ("STRONGLY_BULLISH", "BULLISH"):
         return "green"
@@ -527,24 +495,46 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
                 "agent_2_magnet_target": agent_2_magnet_target
             }
 
-            # --- Agent 4: The Operator ---
-            agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
+            # --- The Python Operator ---
+            order_type = "MARKET"
+            entry_price = current_price
 
-            with console.status(f"[bold cyan]Agent 4 ({strategy.upper()} Operator) Calculating Execution...[/bold cyan]", spinner="dots"):
-                agent4_response = client.models.generate_content(
-                    model="gemini-3.1-flash-lite-preview",
-                    contents=agent4_prompt,
-                    config={"response_mime_type": "application/json", "response_schema": Agent4OperatorSchema}
-                )
+            if final_verdict == "GO LONG":
+                stop_loss = agent_1_threat_level - (0.5 * atr_14)
+                take_profit = agent_2_magnet_target
 
-            try:
-                operator_report = json.loads(agent4_response.text)
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to parse Agent 4 JSON output for {strategy}. Raw text: {agent4_response.text}", exc_info=True)
-                typer.secho(f"\n❌ Error: AI processing failed for {strategy}. Check error.log.\n", fg=typer.colors.RED, bold=True)
+                if stop_loss >= current_price or take_profit <= current_price:
+                    console.print(Panel("[bold red]⛔ INVALID TICKET: Mathematical risk logic or Magnet target contradicts the trade direction. Execution halted.[/bold red]", border_style="red", box=box.ROUNDED, expand=False))
+                    continue
+
+                risk_reward_ratio = (take_profit - current_price) / (current_price - stop_loss)
+                position_size_btc = 100.0 / (current_price - stop_loss)
+                position_size_usd = position_size_btc * current_price
+
+            elif final_verdict == "GO SHORT":
+                stop_loss = agent_1_threat_level + (0.5 * atr_14)
+                take_profit = agent_2_magnet_target
+
+                if stop_loss <= current_price or take_profit >= current_price:
+                    console.print(Panel("[bold red]⛔ INVALID TICKET: Mathematical risk logic or Magnet target contradicts the trade direction. Execution halted.[/bold red]", border_style="red", box=box.ROUNDED, expand=False))
+                    continue
+
+                risk_reward_ratio = (current_price - take_profit) / (stop_loss - current_price)
+                position_size_btc = 100.0 / (stop_loss - current_price)
+                position_size_usd = position_size_btc * current_price
+            else:
                 continue
 
-            # Print Agent 4 Panel
+            operator_report = {
+                "order_type": order_type,
+                "entry_price": round(entry_price, 2),
+                "stop_loss": round(stop_loss, 2),
+                "take_profit": round(take_profit, 2),
+                "risk_reward_ratio": round(risk_reward_ratio, 2),
+                "position_size_usd": round(position_size_usd, 2)
+            }
+
+            # Print Operator Panel
             operator_summary = (
                 f"[bold]Order Type:[/bold] {operator_report.get('order_type', '')}\n"
                 f"[bold]Entry Price:[/bold] ${operator_report.get('entry_price', 0):,.2f}\n"
@@ -575,7 +565,7 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
                     "strategy": strategy
                 },
                 "operator_payload": operator_payload,
-                "agent_4_execution": operator_report
+                "operator_execution": operator_report
             }
 
             with open(filepath, "w") as file:
@@ -617,10 +607,6 @@ def _run_mock(filename: str):
     """
     Internal helper to feed a mock JSON payload directly to Agent 4 and display the Execution Ticket.
     """
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY environment variable is missing. Please set it in your .env file.")
-
     # Read and validate the payload
     filepath = pathlib.Path(f"mock_json/{filename}")
     if not filepath.exists() or not filepath.is_file():
@@ -642,27 +628,53 @@ def _run_mock(filename: str):
     if verdict not in ("GO LONG", "GO SHORT"):
         raise ValueError(f"Invalid verdict '{verdict}'. Must be 'GO LONG' or 'GO SHORT'.")
 
-    # Call Agent 4
-    client = genai.Client(api_key=api_key)
-    agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
+    # Extract required inputs for calculation
+    current_price = operator_payload["current_price"]
+    agent_1_threat_level = operator_payload["agent_1_threat_level"]
+    agent_2_magnet_target = operator_payload["agent_2_magnet_target"]
+    atr_14 = operator_payload["atr_14"]
 
-    with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution from Mock... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
-        agent4_response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview",
-            contents=agent4_prompt,
-            config={"response_mime_type": "application/json", "response_schema": Agent4OperatorSchema}
-        )
+    # --- The Python Operator ---
+    order_type = "MARKET"
+    entry_price = current_price
 
-    try:
-        operator_report = json.loads(agent4_response.text)
-    except json.JSONDecodeError as e:
-        logging.error(f"Failed to parse Agent 4 (Operator) mock JSON output. Raw text: {agent4_response.text}", exc_info=True)
-        raise RuntimeError(f"AI processing failed to return valid JSON: {e}")
+    if verdict == "GO LONG":
+        stop_loss = agent_1_threat_level - (0.5 * atr_14)
+        take_profit = agent_2_magnet_target
+
+        if stop_loss >= current_price or take_profit <= current_price:
+            console.print(Panel("[bold red]⛔ INVALID TICKET: Mathematical risk logic or Magnet target contradicts the trade direction. Execution halted.[/bold red]", border_style="red", box=box.ROUNDED, expand=False))
+            return
+
+        risk_reward_ratio = (take_profit - current_price) / (current_price - stop_loss)
+        position_size_btc = 100.0 / (current_price - stop_loss)
+        position_size_usd = position_size_btc * current_price
+
+    elif verdict == "GO SHORT":
+        stop_loss = agent_1_threat_level + (0.5 * atr_14)
+        take_profit = agent_2_magnet_target
+
+        if stop_loss <= current_price or take_profit >= current_price:
+            console.print(Panel("[bold red]⛔ INVALID TICKET: Mathematical risk logic or Magnet target contradicts the trade direction. Execution halted.[/bold red]", border_style="red", box=box.ROUNDED, expand=False))
+            return
+
+        risk_reward_ratio = (current_price - take_profit) / (stop_loss - current_price)
+        position_size_btc = 100.0 / (stop_loss - current_price)
+        position_size_usd = position_size_btc * current_price
+
+    operator_report = {
+        "order_type": order_type,
+        "entry_price": round(entry_price, 2),
+        "stop_loss": round(stop_loss, 2),
+        "take_profit": round(take_profit, 2),
+        "risk_reward_ratio": round(risk_reward_ratio, 2),
+        "position_size_usd": round(position_size_usd, 2)
+    }
 
     # Set styling dynamically based on the verdict
     panel_color = "green" if verdict == "GO LONG" else "red"
 
-    # Print Agent 4 Panel
+    # Print Operator Panel
     operator_summary = (
         f"[bold {panel_color}]Verdict:[/] {verdict}\n\n"
         f"[bold {panel_color}]Order Type:[/] {operator_report.get('order_type', '')}\n"
@@ -673,7 +685,7 @@ def _run_mock(filename: str):
         f"[bold {panel_color}]Position Size USD:[/] ${operator_report.get('position_size_usd', 0):,.2f}"
     )
 
-    console.print(Panel(operator_summary, title="[Agent 4: Execution Ticket]", border_style=panel_color, box=box.ROUNDED, expand=False))
+    console.print(Panel(operator_summary, title="[Operator: Execution Ticket]", border_style=panel_color, box=box.ROUNDED, expand=False))
 
 
 def _run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True):
