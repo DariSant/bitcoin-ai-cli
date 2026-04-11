@@ -60,6 +60,16 @@ class Agent4OperatorSchema(typing.TypedDict):
     risk_reward_ratio: float
     position_size_usd: float
 
+def get_genai_client() -> genai.Client:
+    """
+    Retrieves the GEMINI_API_KEY and returns an initialized Google GenAI client.
+    Raises RuntimeError if the key is missing.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY environment variable is missing. Please set it in your .env file.")
+    return genai.Client(api_key=api_key)
+
 AGENT4_SYSTEM_PROMPT = """SYSTEM PROMPT:
 You are The Operator, the final execution tier of a quantitative trading system.
 You are a pure mathematical logic gate. You do not analyze the market; you calculate exact risk perimeters and position sizes based on the Portfolio Manager's verdict and the provided data payload.
@@ -529,12 +539,11 @@ def _run_operate(symbol: str = 'BTC/USDT'):
         }
 
         # --- Agent 4: The Operator ---
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
+        try:
+            client = get_genai_client()
+        except RuntimeError as e:
+            typer.secho(f"Error: {e}", fg=typer.colors.RED)
             raise typer.Exit(code=1)
-
-        client = genai.Client(api_key=api_key)
 
         agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
 
@@ -623,9 +632,7 @@ def _run_mock(filename: str):
     """
     Internal helper to feed a mock JSON payload directly to Agent 4 and display the Execution Ticket.
     """
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY environment variable is missing. Please set it in your .env file.")
+    client = get_genai_client()
 
     # Read and validate the payload
     filepath = pathlib.Path(f"mock_json/{filename}")
@@ -649,7 +656,6 @@ def _run_mock(filename: str):
         raise ValueError(f"Invalid verdict '{verdict}'. Must be 'GO LONG' or 'GO SHORT'.")
 
     # Call Agent 4
-    client = genai.Client(api_key=api_key)
     agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
 
     with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution from Mock... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
@@ -689,10 +695,10 @@ def _run_analyze(symbol: str = 'BTC/USDT'):
     """
     _check_open_positions(symbol)
 
-    # Ensure the Gemini API key is loaded securely
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
+    try:
+        client = get_genai_client()
+    except RuntimeError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
     try:
@@ -709,9 +715,6 @@ def _run_analyze(symbol: str = 'BTC/USDT'):
         raise typer.Exit(code=1)
 
     try:
-        # Initialize the Google GenAI client
-        client = genai.Client(api_key=api_key)
-
         # --- THE DATA DIET: SPLITTING PAYLOADS ---
         def extract_tech_data(d: dict) -> dict:
             return {k: d.get(k) for k in ['price', 'ema_34', 'ema_89', 'ema_144', 'rsi_13', 'rsi_47', 'rsi_delta', 'calculated_support', 'calculated_resistance', 'dist_144_percent', 'atr_14']}
@@ -976,16 +979,14 @@ def ask(question: str):
     """
     Ask the AI model a question and print the response.
     """
-    # Ensure the Gemini API key is loaded securely
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
+    try:
+        # Initialize the Google GenAI client
+        client = get_genai_client()
+    except RuntimeError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
     try:
-        # Initialize the Google GenAI client
-        client = genai.Client(api_key=api_key)
-
         # Define the specific Gemma model we are using
         model_id = "gemini-3.1-flash-lite-preview"
 
