@@ -104,6 +104,21 @@ def format_pipe_string(text: str) -> str:
     return "\n".join(f"  • {seg}" for seg in segments)
 
 
+
+def _evaluate_candle_against_position(candle_high: float, candle_low: float, verdict: str, stop_loss: float, take_profit: float) -> str | None:
+    """Evaluates a single candle against an open position's SL and TP. Returns 'WIN', 'LOSS', or None."""
+    if verdict == "GO LONG":
+        if candle_low <= stop_loss:
+            return "LOSS"
+        elif candle_high >= take_profit:
+            return "WIN"
+    elif verdict == "GO SHORT":
+        if candle_high >= stop_loss:
+            return "LOSS"
+        elif candle_low <= take_profit:
+            return "WIN"
+    return None
+
 def _check_open_positions(symbol: str) -> None:
     """
     Pre-flight check for open positions. Reads output_alpha/{symbol}_paper_ledger.json.
@@ -156,22 +171,10 @@ def _check_open_positions(symbol: str) -> None:
         high = float(candle[2])
         low = float(candle[3])
 
-        if verdict == "GO LONG":
-            if low <= stop_loss:
-                result = "LOSS"
-                trade_closed = True
-            elif high >= take_profit:
-                result = "WIN"
-                trade_closed = True
-        elif verdict == "GO SHORT":
-            if high >= stop_loss:
-                result = "LOSS"
-                trade_closed = True
-            elif low <= take_profit:
-                result = "WIN"
-                trade_closed = True
-
-        if trade_closed:
+        eval_result = _evaluate_candle_against_position(high, low, verdict, stop_loss, take_profit)
+        if eval_result:
+            result = eval_result
+            trade_closed = True
             break
 
     if trade_closed:
