@@ -1,0 +1,4 @@
+__pycache__/
+.git/
+.env
+output_alpha/
