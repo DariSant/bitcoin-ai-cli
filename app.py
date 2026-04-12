@@ -80,18 +80,32 @@ def render_execution_ticket(ticket: dict, strategy: str):
     panel_color = "green" if verdict == "GO LONG" else "red" if verdict == "GO SHORT" else "yellow"
 
     timestamp = ticket.get("entry_timestamp", datetime.now().timestamp())
-    opened_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+    opened_str = datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
 
-    operator_summary = (
-        f"[bold {panel_color}]Verdict:[/] {verdict}\n\n"
-        f"[bold {panel_color}]Opened:[/] {opened_str}\n"
-        f"[bold {panel_color}]Order Type:[/] {ticket.get('order_type', '')}\n"
-        f"[bold {panel_color}]Entry Price:[/] ${ticket.get('entry_price', 0):,.2f}\n"
-        f"[bold {panel_color}]Stop Loss:[/] ${ticket.get('stop_loss', 0):,.2f}\n"
-        f"[bold {panel_color}]Take Profit:[/] ${ticket.get('take_profit', 0):,.2f}\n"
-        f"[bold {panel_color}]Risk/Reward Ratio:[/] {ticket.get('risk_reward_ratio', 0):.2f}\n"
+    operator_summary_lines = [
+        f"[bold {panel_color}]Verdict:[/] {verdict}\n",
+        f"[bold {panel_color}]Opened:[/] {opened_str}"
+    ]
+
+    close_timestamp = ticket.get("exit_timestamp") or ticket.get("close_timestamp")
+    if close_timestamp:
+        # close_timestamp from ccxt is in seconds since we divide by 1000 in _check_open_positions
+        # If it happens to be > 1e11 (unlikely to be valid seconds unless far future, likely ms), handle it gracefully
+        if close_timestamp > 1e11:
+            close_timestamp /= 1000.0
+        closed_str = datetime.fromtimestamp(close_timestamp, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        operator_summary_lines.append(f"[bold {panel_color}]Closed:[/] {closed_str}")
+
+    operator_summary_lines.extend([
+        f"[bold {panel_color}]Order Type:[/] {ticket.get('order_type', '')}",
+        f"[bold {panel_color}]Entry Price:[/] ${ticket.get('entry_price', 0):,.2f}",
+        f"[bold {panel_color}]Stop Loss:[/] ${ticket.get('stop_loss', 0):,.2f}",
+        f"[bold {panel_color}]Take Profit:[/] ${ticket.get('take_profit', 0):,.2f}",
+        f"[bold {panel_color}]Risk/Reward Ratio:[/] {ticket.get('risk_reward_ratio', 0):.2f}",
         f"[bold {panel_color}]Position Size USD:[/] ${ticket.get('position_size_usd', 0):,.2f}"
-    )
+    ])
+
+    operator_summary = "\n".join(operator_summary_lines)
 
     panel_title = f"╭─ [ {strategy.upper()} Operator: Execution Ticket ] ─╮"
     console.print(Panel(operator_summary, title=panel_title, border_style=panel_color, box=box.ROUNDED, expand=False))
@@ -144,6 +158,7 @@ def _check_open_positions(symbol: str, strategy: str) -> bool:
     trade_closed = False
     result = ""
     pnl_usd = 0.0
+    closing_market_time = None
 
     for candle in ohlcv:
         # candle: [timestamp, open, high, low, close, volume]
@@ -158,16 +173,20 @@ def _check_open_positions(symbol: str, strategy: str) -> bool:
             if low <= stop_loss:
                 result = "LOSS"
                 trade_closed = True
+                closing_market_time = ts
             elif high >= take_profit:
                 result = "WIN"
                 trade_closed = True
+                closing_market_time = ts
         elif verdict == "GO SHORT":
             if high >= stop_loss:
                 result = "LOSS"
                 trade_closed = True
+                closing_market_time = ts
             elif low <= take_profit:
                 result = "WIN"
                 trade_closed = True
+                closing_market_time = ts
 
         if trade_closed:
             break
@@ -189,7 +208,7 @@ def _check_open_positions(symbol: str, strategy: str) -> bool:
         ledger["status"] = "CLOSED"
         ledger["result"] = result
         ledger["pnl_usd"] = round(pnl_usd, 2)
-        ledger["close_timestamp"] = datetime.now().timestamp()
+        ledger["close_timestamp"] = closing_market_time
 
         # Move to history
         history = []
@@ -421,7 +440,8 @@ def _run_status(symbol: str = 'BTC/USDT'):
 
     # Status command defaults to a "system" level if we wanted to save it, but we can just use "system"
     filepath = log_execution("status", "system", symbol, data_4h, data_15m)
-    console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
+    now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    console.print(f"[dim]💾 [{now_utc_str}] Footprint saved to: {filepath}[/dim]")
 
 def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True):
     """
@@ -589,7 +609,8 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
             with open(filepath, "w") as file:
                 json.dump(execution_footprint, file, indent=2)
 
-            console.print(f"[dim]💾 Execution Footprint saved to: {filepath}[/dim]")
+            now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            console.print(f"[dim]💾 [{now_utc_str}] Execution Footprint saved to: {filepath}[/dim]")
 
             # --- Save Active Ledger (paper_ledger.json) ---
             clean_symbol = symbol.replace("/", "_")
@@ -611,7 +632,8 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
             with open(ledger_path, "w") as file:
                 json.dump(ledger_entry, file, indent=2)
 
-            console.print(f"[dim]💾 Active Ledger updated: {ledger_path}[/dim]")
+            now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            console.print(f"[dim]💾 [{now_utc_str}] Active Ledger updated: {ledger_path}[/dim]")
 
         except typer.Exit:
             raise
@@ -924,7 +946,8 @@ Price: ${data_15m.get('price', 0)}
             console.print(Panel(def_summary, title="[Defensive Strategy Synthesis]", border_style="magenta", box=box.ROUNDED, expand=False))
 
             filepath = log_execution("analyze", "defensive", symbol, data_4h, data_15m, tech_report, vol_report, def_report)
-            console.print(f"[dim]💾 Defensive Footprint saved to: {filepath}[/dim]")
+            now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            console.print(f"[dim]💾 [{now_utc_str}] Defensive Footprint saved to: {filepath}[/dim]")
 
         # --- Agent 3: Lead Market Strategist (Greedy) ---
         if not skip_greed:
@@ -987,7 +1010,8 @@ Price: ${data_15m.get('price', 0)}
             console.print(Panel(greed_summary, title="[Greedy Strategy Synthesis]", border_style="yellow", box=box.ROUNDED, expand=False))
 
             filepath = log_execution("analyze", "greedy", symbol, data_4h, data_15m, tech_report, vol_report, greed_report)
-            console.print(f"[dim]💾 Greedy Footprint saved to: {filepath}[/dim]")
+            now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            console.print(f"[dim]💾 [{now_utc_str}] Greedy Footprint saved to: {filepath}[/dim]")
 
     except typer.Exit:
         # Re-raise Typer's Exit exception so the CLI can exit gracefully
