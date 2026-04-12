@@ -52,6 +52,48 @@ class Agent3ManagerSchema(typing.TypedDict):
     risk_vector: str
     final_verdict: typing.Literal["GO LONG", "GO SHORT", "SIT ON HANDS"]
 
+class Agent4OperatorSchema(typing.TypedDict):
+    order_type: typing.Literal["LIMIT", "MARKET"]
+    entry_price: float
+    stop_loss: float
+    take_profit: float
+    risk_reward_ratio: float
+    position_size_usd: float
+
+def get_genai_client() -> genai.Client:
+    """
+    Retrieves the GEMINI_API_KEY and returns an initialized Google GenAI client.
+    Raises RuntimeError if the key is missing.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY environment variable is missing. Please set it in your .env file.")
+    return genai.Client(api_key=api_key)
+
+AGENT4_SYSTEM_PROMPT = """SYSTEM PROMPT:
+You are The Operator, the final execution tier of a quantitative trading system.
+You are a pure mathematical logic gate. You do not analyze the market; you calculate exact risk perimeters and position sizes based on the Portfolio Manager's verdict and the provided data payload.
+
+DATA INPUTS PROVIDED:
+`verdict` (GO LONG or GO SHORT), `account_balance_usdt`, `risk_per_trade_percent`, `current_price`, `atr_14`, `agent_1_threat_level` (invalidation price), `agent_2_magnet_target` (take profit price).
+
+OUTPUT INSTRUCTIONS:
+Calculate the execution parameters mathematically and return the strict schema:
+
+1. order_type: Based on current price vs entry, output "LIMIT" or "MARKET".
+2. entry_price: The exact price to execute the trade (usually `current_price` unless specifying a pullback limit).
+3. stop_loss: Calculate as `agent_1_threat_level` PLUS/MINUS a buffer of `0.5 * atr_14` (to avoid wicks).
+4. take_profit: Snap exactly to `agent_2_magnet_target`.
+5. risk_reward_ratio: Calculate absolute distance (Entry to TP) / absolute distance (Entry to SL). Format as a float with 2 decimals (e.g., 2.50).
+6. position_size_usd: Calculate maximum dollar risk using `(account_balance_usdt * (risk_per_trade_percent / 100))`. Divide this max dollar risk by the percentage distance from `entry_price` to `stop_loss` to get the total position size in USD.
+
+EXECUTION:
+Do not explain your math. Output only the calculated data schema. Precision is mandatory.
+
+--- OPERATOR PAYLOAD ---
+{payload}
+"""
+
 def get_bias_color(bias: str) -> str:
     if bias in ("STRONGLY_BULLISH", "BULLISH"):
         return "green"
@@ -72,7 +114,22 @@ def format_pipe_string(text: str) -> str:
     return "\n".join(f"  • {seg}" for seg in segments)
 
 
-def _check_open_positions(symbol: str, strategy: str) -> bool:
+
+def _evaluate_candle_against_position(candle_high: float, candle_low: float, verdict: str, stop_loss: float, take_profit: float) -> str | None:
+    """Evaluates a single candle against an open position's SL and TP. Returns 'WIN', 'LOSS', or None."""
+    if verdict == "GO LONG":
+        if candle_low <= stop_loss:
+            return "LOSS"
+        elif candle_high >= take_profit:
+            return "WIN"
+    elif verdict == "GO SHORT":
+        if candle_high >= stop_loss:
+            return "LOSS"
+        elif candle_low <= take_profit:
+            return "WIN"
+    return None
+
+def _check_open_positions(symbol: str) -> None:
     """
     Pre-flight check for open positions. Reads output_alpha/{strategy}/{symbol}_paper_ledger.json.
     If OPEN, fetches recent 15m candles to see if TP/SL was hit.
@@ -129,22 +186,10 @@ def _check_open_positions(symbol: str, strategy: str) -> bool:
         high = float(candle[2])
         low = float(candle[3])
 
-        if verdict == "GO LONG":
-            if low <= stop_loss:
-                result = "LOSS"
-                trade_closed = True
-            elif high >= take_profit:
-                result = "WIN"
-                trade_closed = True
-        elif verdict == "GO SHORT":
-            if high >= stop_loss:
-                result = "LOSS"
-                trade_closed = True
-            elif low <= take_profit:
-                result = "WIN"
-                trade_closed = True
-
-        if trade_closed:
+        eval_result = _evaluate_candle_against_position(high, low, verdict, stop_loss, take_profit)
+        if eval_result:
+            result = eval_result
+            trade_closed = True
             break
 
     if trade_closed:
@@ -428,17 +473,14 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
             typer.secho(f"[yellow]No recent analysis found for {strategy.upper()} strategy.[/yellow]", fg=typer.colors.YELLOW)
             continue
 
-        json_files = list(analyze_dir.rglob("*.json"))
-        if not json_files:
-            typer.secho(f"[yellow]No recent analysis found for {strategy.upper()} strategy.[/yellow]", fg=typer.colors.YELLOW)
-            continue
+        # --- Agent 4: The Operator ---
+        try:
+            client = get_genai_client()
+        except RuntimeError as e:
+            typer.secho(f"Error: {e}", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
 
-        # Filter files for the requested symbol
-        symbol_files = [f for f in json_files if symbol.replace("/", "") in f.name]
-
-        if not symbol_files:
-            typer.secho(f"[yellow]No recent analysis found for {symbol} on {strategy.upper()} strategy.[/yellow]", fg=typer.colors.YELLOW)
-            continue
+        agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
 
         # Sort files by modification time descending to get the most recent one
         symbol_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
@@ -607,6 +649,8 @@ def _run_mock(filename: str):
     """
     Internal helper to feed a mock JSON payload directly to Agent 4 and display the Execution Ticket.
     """
+    client = get_genai_client()
+
     # Read and validate the payload
     filepath = pathlib.Path(f"mock_json/{filename}")
     if not filepath.exists() or not filepath.is_file():
@@ -628,48 +672,21 @@ def _run_mock(filename: str):
     if verdict not in ("GO LONG", "GO SHORT"):
         raise ValueError(f"Invalid verdict '{verdict}'. Must be 'GO LONG' or 'GO SHORT'.")
 
-    # Extract required inputs for calculation
-    current_price = operator_payload["current_price"]
-    agent_1_threat_level = operator_payload["agent_1_threat_level"]
-    agent_2_magnet_target = operator_payload["agent_2_magnet_target"]
-    atr_14 = operator_payload["atr_14"]
+    # Call Agent 4
+    agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
 
-    # --- The Python Operator ---
-    order_type = "MARKET"
-    entry_price = current_price
+    with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution from Mock... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
+        agent4_response = client.models.generate_content(
+            model="gemini-3.1-flash-lite-preview",
+            contents=agent4_prompt,
+            config={"response_mime_type": "application/json", "response_schema": Agent4OperatorSchema}
+        )
 
-    if verdict == "GO LONG":
-        stop_loss = agent_1_threat_level - (0.5 * atr_14)
-        take_profit = agent_2_magnet_target
-
-        if stop_loss >= current_price or take_profit <= current_price:
-            console.print(Panel("[bold red]⛔ INVALID TICKET: Mathematical risk logic or Magnet target contradicts the trade direction. Execution halted.[/bold red]", border_style="red", box=box.ROUNDED, expand=False))
-            return
-
-        risk_reward_ratio = (take_profit - current_price) / (current_price - stop_loss)
-        position_size_btc = 100.0 / (current_price - stop_loss)
-        position_size_usd = position_size_btc * current_price
-
-    elif verdict == "GO SHORT":
-        stop_loss = agent_1_threat_level + (0.5 * atr_14)
-        take_profit = agent_2_magnet_target
-
-        if stop_loss <= current_price or take_profit >= current_price:
-            console.print(Panel("[bold red]⛔ INVALID TICKET: Mathematical risk logic or Magnet target contradicts the trade direction. Execution halted.[/bold red]", border_style="red", box=box.ROUNDED, expand=False))
-            return
-
-        risk_reward_ratio = (current_price - take_profit) / (stop_loss - current_price)
-        position_size_btc = 100.0 / (stop_loss - current_price)
-        position_size_usd = position_size_btc * current_price
-
-    operator_report = {
-        "order_type": order_type,
-        "entry_price": round(entry_price, 2),
-        "stop_loss": round(stop_loss, 2),
-        "take_profit": round(take_profit, 2),
-        "risk_reward_ratio": round(risk_reward_ratio, 2),
-        "position_size_usd": round(position_size_usd, 2)
-    }
+    try:
+        operator_report = json.loads(agent4_response.text)
+    except json.JSONDecodeError as e:
+        logging.error(f"Failed to parse Agent 4 (Operator) mock JSON output. Raw text: {agent4_response.text}", exc_info=True)
+        raise RuntimeError(f"AI processing failed to return valid JSON: {e}")
 
     # Set styling dynamically based on the verdict
     panel_color = "green" if verdict == "GO LONG" else "red"
@@ -700,10 +717,10 @@ def _run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
         typer.secho("\n[yellow]Both strategies have OPEN positions or are disabled. Execution halted.[/yellow]\n", fg=typer.colors.YELLOW)
         raise typer.Exit()
 
-    # Ensure the Gemini API key is loaded securely
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
+    try:
+        client = get_genai_client()
+    except RuntimeError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
     try:
@@ -720,9 +737,6 @@ def _run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
         raise typer.Exit(code=1)
 
     try:
-        # Initialize the Google GenAI client
-        client = genai.Client(api_key=api_key)
-
         # --- THE DATA DIET: SPLITTING PAYLOADS ---
         def extract_tech_data(d: dict) -> dict:
             return {k: d.get(k) for k in ['price', 'ema_34', 'ema_89', 'ema_144', 'rsi_13', 'rsi_47', 'rsi_delta', 'calculated_support', 'calculated_resistance', 'dist_144_percent', 'atr_14']}
@@ -1082,16 +1096,14 @@ def ask(question: str):
     """
     Ask the AI model a question and print the response.
     """
-    # Ensure the Gemini API key is loaded securely
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
+    try:
+        # Initialize the Google GenAI client
+        client = get_genai_client()
+    except RuntimeError as e:
+        typer.secho(f"Error: {e}", fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
     try:
-        # Initialize the Google GenAI client
-        client = genai.Client(api_key=api_key)
-
         # Define the specific Gemma model we are using
         model_id = "gemini-3.1-flash-lite-preview"
 
