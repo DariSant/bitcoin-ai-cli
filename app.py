@@ -131,34 +131,29 @@ def _evaluate_candle_against_position(candle_high: float, candle_low: float, ver
 
 def _check_open_positions(symbol: str) -> None:
     """
-    Pre-flight check for open positions. Reads output_alpha/{strategy}/{symbol}_paper_ledger.json.
+    Pre-flight check for open positions. Reads output_alpha/{symbol}_paper_ledger.json.
     If OPEN, fetches recent 15m candles to see if TP/SL was hit.
-    If hit, logs to history and returns False (proceed). If not hit, returns True (skip).
-    If no open position, returns False (proceed).
+    If hit, logs to history and proceeds. If not hit, halts execution.
     """
     clean_symbol = symbol.replace("/", "_")
-
-    # Ensure strategy directory exists
-    os.makedirs(f"output_alpha/{strategy}", exist_ok=True)
-
-    ledger_path = f"output_alpha/{strategy}/{clean_symbol}_paper_ledger.json"
-    history_path = f"output_alpha/{strategy}/{clean_symbol}_trade_history.json"
+    ledger_path = f"output_alpha/{clean_symbol}_paper_ledger.json"
+    history_path = f"output_alpha/{clean_symbol}_trade_history.json"
 
     if not os.path.exists(ledger_path):
-        return False
+        return
 
     try:
         with open(ledger_path, "r") as f:
             ledger = json.load(f)
     except json.JSONDecodeError:
-        return False
+        return
 
     if ledger.get("status") != "OPEN":
-        return False
+        return
 
     entry_timestamp = ledger.get("entry_timestamp")
     if not entry_timestamp:
-        return False
+        return
 
     try:
         exchange = ccxt.binance()
@@ -228,30 +223,29 @@ def _check_open_positions(symbol: str) -> None:
         os.remove(ledger_path)
 
         console.print(Panel(
-            f"[bold]Trade Closed ({strategy.upper()}):[/bold] {result}\n[bold]PnL:[/bold] ${pnl_usd:,.2f}",
+            f"[bold]Trade Closed:[/bold] {result}\n[bold]PnL:[/bold] ${pnl_usd:,.2f}",
             title="[Position Update]", border_style="cyan", box=box.ROUNDED, expand=False
         ))
         # Allow pipeline to proceed
-        return False
+        return
 
     else:
         console.print(Panel(
-            f"[yellow]Position currently OPEN ({strategy.upper()}). Waiting for TP/SL. Execution halted for this strategy.[/yellow]",
+            f"[yellow]Position currently OPEN. Waiting for TP/SL. Execution halted.[/yellow]",
             title="[State Check]", border_style="yellow", box=box.ROUNDED, expand=False
         ))
-        return True
+        raise typer.Exit()
 
 
-def log_execution(command_name: str, strategy: str, symbol: str, data_4h: dict, data_15m: dict, agent1_report: dict = None, agent2_report: dict = None, agent3_report: dict = None) -> str:
+def log_execution(command_name: str, symbol: str, data_4h: dict, data_15m: dict, agent1_report: dict = None, agent2_report: dict = None, agent3_report: dict = None) -> str:
     """
     Universally log execution state to a JSON footprint in output_alpha/.
     """
     now = datetime.now()
-    directory_path = f"output_alpha/{command_name}/{strategy}/{now.strftime('%Y-%m')}/"
+    directory_path = f"output_alpha/{command_name}/{now.strftime('%Y-%m')}/"
     os.makedirs(directory_path, exist_ok=True)
 
-    strategy_prefix = "DEF" if strategy == "defensive" else "GREED" if strategy == "greedy" else strategy.upper()
-    filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{symbol.replace('/', '')}_{strategy_prefix}_analysis.json"
+    filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{symbol.replace('/', '')}.json"
     filepath = os.path.join(directory_path, filename)
 
     payload = {
@@ -441,37 +435,108 @@ def _run_status(symbol: str = 'BTC/USDT'):
     typer.echo(f"Mean Reversion: {data_15m['dist_144_percent']}% from EMA | {data_15m['dist_poc_percent']}% from POC")
     typer.secho("=" * 60 + "\n", fg=typer.colors.CYAN)
 
-    # Status command defaults to a "system" level if we wanted to save it, but we can just use "system"
-    filepath = log_execution("status", "system", symbol, data_4h, data_15m)
+    filepath = log_execution("status", symbol, data_4h, data_15m)
     console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
 
-def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True):
+def _run_operate(symbol: str = 'BTC/USDT'):
     """
     Internal helper to execute trading operations based on recent analysis.
     """
-    strategies_to_run = []
-    if run_def and not _check_open_positions(symbol, "defensive"):
-        strategies_to_run.append("defensive")
-    if run_greed and not _check_open_positions(symbol, "greedy"):
-        strategies_to_run.append("greedy")
+    _check_open_positions(symbol)
 
-    if not strategies_to_run:
-        typer.secho("\n[yellow]No strategies eligible for operation (either disabled or positions open).[/yellow]\n", fg=typer.colors.YELLOW)
+    analyze_dir = pathlib.Path("output_alpha/analyze")
+
+    if not analyze_dir.exists():
+        typer.secho("[yellow]No recent analysis has been run in the last 10 minutes.[/yellow]", fg=typer.colors.YELLOW)
         raise typer.Exit()
 
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
-        raise typer.Exit(code=1)
+    json_files = list(analyze_dir.rglob("*.json"))
+    if not json_files:
+        typer.secho("[yellow]No recent analysis has been run in the last 10 minutes.[/yellow]", fg=typer.colors.YELLOW)
+        raise typer.Exit()
 
-    client = genai.Client(api_key=api_key)
+    # Filter files for the requested symbol by reading the payload metadata
+    symbol_files = []
+    for file in json_files:
+        if symbol.replace("/", "") in file.name:
+            symbol_files.append(file)
+        else:
+            # Fallback to reading the file to check the symbol in metadata
+            try:
+                with open(file, "r") as f:
+                    data = json.load(f)
+                    if data.get("metadata", {}).get("symbol") == symbol:
+                        symbol_files.append(file)
+            except Exception:
+                pass
 
-    for strategy in strategies_to_run:
-        analyze_dir = pathlib.Path(f"output_alpha/analyze/{strategy}")
+    if not symbol_files:
+        typer.secho("[yellow]No recent analysis has been run in the last 10 minutes.[/yellow]", fg=typer.colors.YELLOW)
+        raise typer.Exit()
 
-        if not analyze_dir.exists():
-            typer.secho(f"[yellow]No recent analysis found for {strategy.upper()} strategy.[/yellow]", fg=typer.colors.YELLOW)
-            continue
+    # Sort files by modification time descending to get the most recent one
+    symbol_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    most_recent_file = symbol_files[0]
+
+    try:
+        with open(most_recent_file, "r") as f:
+            data = json.load(f)
+
+        timestamp_str = data.get("metadata", {}).get("timestamp")
+        if not timestamp_str:
+            raise ValueError("No timestamp found in metadata.")
+
+        file_time = datetime.fromisoformat(timestamp_str)
+        now = datetime.now(timezone.utc) if file_time.tzinfo else datetime.now()
+
+        diff = now - file_time
+        if diff.total_seconds() > 600:
+            typer.secho("[yellow]No recent analysis has been run in the last 10 minutes.[/yellow]", fg=typer.colors.YELLOW)
+            raise typer.Exit()
+
+        synthesis = data.get("agent_3_synthesis", {})
+        final_verdict = synthesis.get("final_verdict", "SIT ON HANDS")
+
+        if final_verdict == "SIT ON HANDS":
+            typer.secho("\n[yellow]Final Verdict is SIT ON HANDS. Execution halted.[/yellow]", fg=typer.colors.YELLOW, bold=True)
+            raise typer.Exit()
+
+        # Display the strategist's analysis panel
+        strategist_summary = (
+            f"[bold]Executive Summary:[/bold]\n{synthesis.get('executive_summary', '')}\n\n"
+            f"[bold]Confluence Matrix:[/bold]\n{format_pipe_string(synthesis.get('confluence_matrix', ''))}\n\n"
+            f"[bold]Risk Vector:[/bold]\n{format_pipe_string(synthesis.get('risk_vector', ''))}\n\n"
+            f"[bold]Final Verdict:[/bold] {final_verdict}"
+        )
+
+        console.print(Panel(strategist_summary, title="[Lead Market Strategist - Synthesis]", border_style="magenta", box=box.ROUNDED, expand=False))
+        console.print("[green]Proceeding to Agent 4 Execution...[/green]")
+
+        # --- Python Short-Circuit Routing & Operator Payload Construction ---
+        raw_15m = data.get("raw_market_data", {}).get("15m", {})
+
+        current_price = raw_15m.get("price")
+        atr_14 = raw_15m.get("atr_14")
+        poc_price = raw_15m.get("poc_price")
+        calculated_support = raw_15m.get("calculated_support")
+        calculated_resistance = raw_15m.get("calculated_resistance")
+
+        if final_verdict == "GO LONG":
+            agent_1_threat_level = calculated_support
+        else: # "GO SHORT"
+            agent_1_threat_level = calculated_resistance
+
+        agent_2_magnet_target = poc_price
+
+        operator_payload = {
+            "verdict": final_verdict,
+            "account_balance_usdt": 10000.0,
+            "risk_per_trade_percent": 1.0,
+            "current_price": current_price,
+            "atr_14": atr_14,
+            "agent_1_threat_level": agent_1_threat_level,
+            "agent_2_magnet_target": agent_2_magnet_target
+        }
 
         # --- Agent 4: The Operator ---
         try:
@@ -482,167 +547,85 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
 
         agent4_prompt = AGENT4_SYSTEM_PROMPT.format(payload=json.dumps(operator_payload, indent=2))
 
-        # Sort files by modification time descending to get the most recent one
-        symbol_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-        most_recent_file = symbol_files[0]
-
-        try:
-            with open(most_recent_file, "r") as f:
-                data = json.load(f)
-
-            timestamp_str = data.get("metadata", {}).get("timestamp")
-            if not timestamp_str:
-                raise ValueError("No timestamp found in metadata.")
-
-            file_time = datetime.fromisoformat(timestamp_str)
-            now_dt = datetime.now(timezone.utc) if file_time.tzinfo else datetime.now()
-
-            diff = now_dt - file_time
-            if diff.total_seconds() > 600:
-                typer.secho(f"[yellow]No recent analysis has been run in the last 10 minutes for {strategy.upper()}.[/yellow]", fg=typer.colors.YELLOW)
-                continue
-
-            synthesis = data.get("agent_3_synthesis", {})
-            final_verdict = synthesis.get("final_verdict", "SIT ON HANDS")
-
-            if final_verdict == "SIT ON HANDS":
-                typer.secho(f"\n[yellow]Final Verdict for {strategy.upper()} is SIT ON HANDS. Execution bypassed.[/yellow]", fg=typer.colors.YELLOW, bold=True)
-                continue
-
-            console.print(f"\n[green]Proceeding to Agent 4 Execution for {strategy.upper()} Strategy...[/green]")
-
-            # --- Python Short-Circuit Routing & Operator Payload Construction ---
-            raw_15m = data.get("raw_market_data", {}).get("15m", {})
-
-            current_price = raw_15m.get("price")
-            atr_14 = raw_15m.get("atr_14")
-            poc_price = raw_15m.get("poc_price")
-            calculated_support = raw_15m.get("calculated_support")
-            calculated_resistance = raw_15m.get("calculated_resistance")
-
-            if final_verdict == "GO LONG":
-                agent_1_threat_level = calculated_support
-            else: # "GO SHORT"
-                agent_1_threat_level = calculated_resistance
-
-            agent_2_magnet_target = poc_price
-
-            operator_payload = {
-                "verdict": final_verdict,
-                "account_balance_usdt": 10000.0,
-                "risk_per_trade_percent": 1.0,
-                "current_price": current_price,
-                "atr_14": atr_14,
-                "agent_1_threat_level": agent_1_threat_level,
-                "agent_2_magnet_target": agent_2_magnet_target
-            }
-
-            # --- The Python Operator ---
-            order_type = "MARKET"
-            entry_price = current_price
-
-            if final_verdict == "GO LONG":
-                stop_loss = agent_1_threat_level - (0.5 * atr_14)
-                take_profit = agent_2_magnet_target
-
-                if stop_loss >= current_price or take_profit <= current_price:
-                    console.print(Panel("[bold red]⛔ INVALID TICKET: Mathematical risk logic or Magnet target contradicts the trade direction. Execution halted.[/bold red]", border_style="red", box=box.ROUNDED, expand=False))
-                    continue
-
-                risk_reward_ratio = (take_profit - current_price) / (current_price - stop_loss)
-                position_size_btc = 100.0 / (current_price - stop_loss)
-                position_size_usd = position_size_btc * current_price
-
-            elif final_verdict == "GO SHORT":
-                stop_loss = agent_1_threat_level + (0.5 * atr_14)
-                take_profit = agent_2_magnet_target
-
-                if stop_loss <= current_price or take_profit >= current_price:
-                    console.print(Panel("[bold red]⛔ INVALID TICKET: Mathematical risk logic or Magnet target contradicts the trade direction. Execution halted.[/bold red]", border_style="red", box=box.ROUNDED, expand=False))
-                    continue
-
-                risk_reward_ratio = (current_price - take_profit) / (stop_loss - current_price)
-                position_size_btc = 100.0 / (stop_loss - current_price)
-                position_size_usd = position_size_btc * current_price
-            else:
-                continue
-
-            operator_report = {
-                "order_type": order_type,
-                "entry_price": round(entry_price, 2),
-                "stop_loss": round(stop_loss, 2),
-                "take_profit": round(take_profit, 2),
-                "risk_reward_ratio": round(risk_reward_ratio, 2),
-                "position_size_usd": round(position_size_usd, 2)
-            }
-
-            # Print Operator Panel
-            operator_summary = (
-                f"[bold]Order Type:[/bold] {operator_report.get('order_type', '')}\n"
-                f"[bold]Entry Price:[/bold] ${operator_report.get('entry_price', 0):,.2f}\n"
-                f"[bold]Stop Loss:[/bold] ${operator_report.get('stop_loss', 0):,.2f}\n"
-                f"[bold]Take Profit:[/bold] ${operator_report.get('take_profit', 0):,.2f}\n"
-                f"[bold]Risk/Reward Ratio:[/bold] {operator_report.get('risk_reward_ratio', 0):.2f}\n"
-                f"[bold]Position Size USD:[/bold] ${operator_report.get('position_size_usd', 0):,.2f}"
+        with console.status("[bold cyan]Agent 4 (The Operator) Calculating Execution... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
+            agent4_response = client.models.generate_content(
+                model="gemini-3.1-flash-lite-preview",
+                contents=agent4_prompt,
+                config={"response_mime_type": "application/json", "response_schema": Agent4OperatorSchema}
             )
 
-            panel_title = f"[{strategy.capitalize()} Operator - Execution Ticket]"
-            panel_color = "cyan" if strategy == "defensive" else "yellow"
-            console.print(Panel(operator_summary, title=panel_title, border_style=panel_color, box=box.ROUNDED, expand=False))
+        try:
+            operator_report = json.loads(agent4_response.text)
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse Agent 4 (Operator) JSON output. Raw text: {agent4_response.text}", exc_info=True)
+            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+            raise typer.Exit(code=1)
 
-            # --- Save Execution Footprint ---
-            now = datetime.now()
-            directory_path = f"output_alpha/operate/{strategy}/{now.strftime('%Y-%m')}/"
-            os.makedirs(directory_path, exist_ok=True)
+        # Print Agent 4 Panel
+        operator_summary = (
+            f"[bold]Order Type:[/bold] {operator_report.get('order_type', '')}\n"
+            f"[bold]Entry Price:[/bold] ${operator_report.get('entry_price', 0):,.2f}\n"
+            f"[bold]Stop Loss:[/bold] ${operator_report.get('stop_loss', 0):,.2f}\n"
+            f"[bold]Take Profit:[/bold] ${operator_report.get('take_profit', 0):,.2f}\n"
+            f"[bold]Risk/Reward Ratio:[/bold] {operator_report.get('risk_reward_ratio', 0):.2f}\n"
+            f"[bold]Position Size USD:[/bold] ${operator_report.get('position_size_usd', 0):,.2f}"
+        )
 
-            strategy_prefix = "DEF" if strategy == "defensive" else "GREED"
-            filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{symbol.replace('/', '')}_{strategy_prefix}_EXECUTION.json"
-            filepath = os.path.join(directory_path, filename)
+        console.print(Panel(operator_summary, title="[The Operator - Execution Ticket]", border_style="cyan", box=box.ROUNDED, expand=False))
 
-            execution_footprint = {
-                "metadata": {
-                    "timestamp": now.isoformat(),
-                    "symbol": symbol,
-                    "command_run": "operate",
-                    "strategy": strategy
-                },
-                "operator_payload": operator_payload,
-                "operator_execution": operator_report
-            }
+        # --- Save Execution Footprint ---
+        now = datetime.now()
+        directory_path = f"output_alpha/operate/{now.strftime('%Y-%m')}/"
+        os.makedirs(directory_path, exist_ok=True)
+        filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{symbol.replace('/', '')}_EXECUTION.json"
+        filepath = os.path.join(directory_path, filename)
 
-            with open(filepath, "w") as file:
-                json.dump(execution_footprint, file, indent=2)
-
-            console.print(f"[dim]💾 Execution Footprint saved to: {filepath}[/dim]")
-
-            # --- Save Active Ledger (paper_ledger.json) ---
-            clean_symbol = symbol.replace("/", "_")
-            ledger_path = f"output_alpha/{strategy}/{clean_symbol}_paper_ledger.json"
-
-            ledger_entry = {
+        execution_footprint = {
+            "metadata": {
+                "timestamp": now.isoformat(),
                 "symbol": symbol,
-                "status": "OPEN",
-                "entry_timestamp": now.timestamp(),
-                "verdict": operator_payload["verdict"],
-                "order_type": operator_report.get("order_type"),
-                "entry_price": operator_report.get("entry_price"),
-                "stop_loss": operator_report.get("stop_loss"),
-                "take_profit": operator_report.get("take_profit"),
-                "risk_reward_ratio": operator_report.get("risk_reward_ratio"),
-                "position_size_usd": operator_report.get("position_size_usd")
-            }
+                "command_run": "operate"
+            },
+            "operator_payload": operator_payload,
+            "agent_4_execution": operator_report
+        }
 
-            with open(ledger_path, "w") as file:
-                json.dump(ledger_entry, file, indent=2)
+        with open(filepath, "w") as file:
+            json.dump(execution_footprint, file, indent=2)
 
-            console.print(f"[dim]💾 Active Ledger updated: {ledger_path}[/dim]")
+        console.print(f"[dim]💾 Execution Footprint saved to: {filepath}[/dim]")
 
-        except typer.Exit:
-            raise
-        except Exception as e:
-            logging.error(f"Failed to read or parse analysis file {most_recent_file} for {strategy}", exc_info=True)
-            typer.secho(f"\n❌ Error: Could not read analysis file for {strategy}. Check error.log.\n", fg=typer.colors.RED, bold=True)
-            continue
+
+        # --- Save Active Ledger (paper_ledger.json) ---
+        clean_symbol = symbol.replace("/", "_")
+        ledger_path = f"output_alpha/{clean_symbol}_paper_ledger.json"
+
+        ledger_entry = {
+            "symbol": symbol,
+            "status": "OPEN",
+            "entry_timestamp": now.timestamp(),
+            "verdict": operator_payload["verdict"],
+            "order_type": operator_report.get("order_type"),
+            "entry_price": operator_report.get("entry_price"),
+            "stop_loss": operator_report.get("stop_loss"),
+            "take_profit": operator_report.get("take_profit"),
+            "risk_reward_ratio": operator_report.get("risk_reward_ratio"),
+            "position_size_usd": operator_report.get("position_size_usd")
+        }
+
+        with open(ledger_path, "w") as file:
+            json.dump(ledger_entry, file, indent=2)
+
+        console.print(f"[dim]💾 Active Ledger updated: {ledger_path}[/dim]")
+
+        return
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        logging.error(f"Failed to read or parse analysis file {most_recent_file}", exc_info=True)
+        typer.secho(f"\n❌ Error: Could not read analysis file. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+        raise typer.Exit(code=1)
 
 
 def _run_mock(filename: str):
@@ -691,7 +674,7 @@ def _run_mock(filename: str):
     # Set styling dynamically based on the verdict
     panel_color = "green" if verdict == "GO LONG" else "red"
 
-    # Print Operator Panel
+    # Print Agent 4 Panel
     operator_summary = (
         f"[bold {panel_color}]Verdict:[/] {verdict}\n\n"
         f"[bold {panel_color}]Order Type:[/] {operator_report.get('order_type', '')}\n"
@@ -702,20 +685,15 @@ def _run_mock(filename: str):
         f"[bold {panel_color}]Position Size USD:[/] ${operator_report.get('position_size_usd', 0):,.2f}"
     )
 
-    console.print(Panel(operator_summary, title="[Operator: Execution Ticket]", border_style=panel_color, box=box.ROUNDED, expand=False))
+    console.print(Panel(operator_summary, title="[Agent 4: Execution Ticket]", border_style=panel_color, box=box.ROUNDED, expand=False))
 
 
-def _run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True):
+def _run_analyze(symbol: str = 'BTC/USDT'):
     """
     Internal helper to fetch MTF (4h, 15m) data for a given symbol and execute trading analysis via AI agents.
-    Outputs the Lead Market Strategist thesis for active strategies.
+    Outputs the Lead Market Strategist thesis.
     """
-    skip_def = _check_open_positions(symbol, "defensive") if run_def else True
-    skip_greed = _check_open_positions(symbol, "greedy") if run_greed else True
-
-    if skip_def and skip_greed:
-        typer.secho("\n[yellow]Both strategies have OPEN positions or are disabled. Execution halted.[/yellow]\n", fg=typer.colors.YELLOW)
-        raise typer.Exit()
+    _check_open_positions(symbol)
 
     try:
         client = get_genai_client()
@@ -866,9 +844,8 @@ Synthesize the provided JSON payload into the schema above. Track the math, map 
 
         console.print(Panel(vol_summary, title="[Volume & Liquidity Agent]", border_style=vol_color, box=box.ROUNDED, expand=False))
 
-        # --- Agent 3: Lead Market Strategist (Defensive) ---
-        if not skip_def:
-            agent3_defensive_prompt = f"""SYSTEM PROMPT:
+        # --- Agent 3: Lead Market Strategist ---
+        agent3_prompt = f"""SYSTEM PROMPT:
 You are the Lead Portfolio Manager for a deterministic Quantitative AI Execution Engine.
 You do NOT look at raw market data. Your function is to synthesize the structured reports from the Technical Analyst (Agent 1) and the Volume & Liquidity Analyst (Agent 2).
 
@@ -902,95 +879,33 @@ Volume Agent Report:
 Price: ${data_15m.get('price', 0)}
 """
 
-            with console.status("[bold cyan]Agent 3 (Defensive Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
-                agent3_def_response = client.models.generate_content(
-                    model="gemini-3.1-flash-lite-preview",
-                    contents=agent3_defensive_prompt,
-                    config={"response_mime_type": "application/json", "response_schema": Agent3ManagerSchema}
-                )
-
-            try:
-                def_report = json.loads(agent3_def_response.text)
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to parse Agent 3 (Defensive) JSON output. Raw text: {agent3_def_response.text}", exc_info=True)
-                typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-                raise typer.Exit(code=1)
-
-            def_verdict = def_report.get('final_verdict', 'SIT ON HANDS')
-            def_summary = (
-                f"[bold]Executive Summary:[/bold]\n{def_report.get('executive_summary', '')}\n\n"
-                f"[bold]Confluence Matrix:[/bold]\n{format_pipe_string(def_report.get('confluence_matrix', ''))}\n\n"
-                f"[bold]Risk Vector:[/bold]\n{format_pipe_string(def_report.get('risk_vector', ''))}\n\n"
-                f"[bold]Final Verdict:[/bold] {def_verdict}"
+        with console.status("[bold cyan]Agent 3 (Lead Market Strategist) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
+            agent3_response = client.models.generate_content(
+                model="gemini-3.1-flash-lite-preview",
+                contents=agent3_prompt,
+                config={"response_mime_type": "application/json", "response_schema": Agent3ManagerSchema}
             )
 
-            console.print(Panel(def_summary, title="[Defensive Strategy Synthesis]", border_style="magenta", box=box.ROUNDED, expand=False))
+        try:
+            strategist_report = json.loads(agent3_response.text)
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse Agent 3 (Strategist) JSON output. Raw text: {agent3_response.text}", exc_info=True)
+            typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+            raise typer.Exit(code=1)
 
-            filepath = log_execution("analyze", "defensive", symbol, data_4h, data_15m, tech_report, vol_report, def_report)
-            console.print(f"[dim]💾 Defensive Footprint saved to: {filepath}[/dim]")
+        # Print the Lead Market Strategist Panel cleanly
+        final_verdict = strategist_report.get('final_verdict', 'SIT ON HANDS')
+        strategist_summary = (
+            f"[bold]Executive Summary:[/bold]\n{strategist_report.get('executive_summary', '')}\n\n"
+            f"[bold]Confluence Matrix:[/bold]\n{format_pipe_string(strategist_report.get('confluence_matrix', ''))}\n\n"
+            f"[bold]Risk Vector:[/bold]\n{format_pipe_string(strategist_report.get('risk_vector', ''))}\n\n"
+            f"[bold]Final Verdict:[/bold] {final_verdict}"
+        )
 
-        # --- Agent 3: Lead Market Strategist (Greedy) ---
-        if not skip_greed:
-            agent3_greedy_prompt = f"""SYSTEM PROMPT:
-You are the Lead Portfolio Manager and Chief Risk Officer for a deterministic Quantitative AI Execution Engine.
-You do NOT look at raw market data. Your function is to synthesize the structured reports from the Technical Analyst (Agent 1) and the Volume & Liquidity Analyst (Agent 2) to identify asymmetric trading opportunities.
+        console.print(Panel(strategist_summary, title="[Lead Market Strategist - Synthesis]", border_style="magenta", box=box.ROUNDED, expand=False))
 
-YOUR PRIORITIES:
-1. Contextual Dominance over Consensus: You do not require democratic agreement between agents. A "NEUTRAL" volume reading is not a veto; it often signals balance before expansion. Contradictory timeframes frequently present highly profitable mean-reversion or pullback reload opportunities.
-2. Mathematical Expectancy (Asymmetry): You must rigorously evaluate the distance between the current price, Agent 1's structural threat (Invalidation Level), and Agent 2's Magnet/Target.
-3. Intelligent Aggression: Do not default to "SIT ON HANDS" at the first sign of conflict. If an asset is resting on heavy support with exhausted selling volume and a high upside magnet, that is a prime asymmetric LONG setup, even if the strict LTF trend state is "bearish".
-
-OUTPUT INSTRUCTIONS:
-Return a strictly formatted response adhering to the following schema:
-
-1. executive_summary: Write a highly professional, deep, 3-4 sentence human-readable analysis. Synthesize the core structural thesis, liquidity flow, and explicitly weigh the mathematical asymmetry. Read like a prop-firm portfolio manager instructing the execution desk.
-2. confluence_matrix: Format as `STRUCTURE: [STATE] | VOLUME: [STATE] | EDGE: [MEAN-REVERSION / TREND-CONTINUATION / CHOP]`.
-3. risk_vector: Format as `THREAT_PROXIMITY: [HIGH/LOW] | MAGNET_PULL: [STRONG/WEAK] | ASYMMETRY: [FAVORABLE / UNFAVORABLE]`.
-4. final_verdict: Must be EXACTLY ONE of the following literals: "GO LONG", "GO SHORT", "SIT ON HANDS".
-
-EXECUTION LOGIC:
-- Rule of Exhaustion: If Agent 1's momentum shows oversold/overbought conditions at a structural Key Level AND Agent 2 reports volume contraction, this confirms exhaustion. -> GO LONG / GO SHORT (Mean Reversion).
-- Rule of Initiative: If price is breaking a Key Level and Agent 2 reports expanding volume outside the Value Area, this confirms acceptance. -> GO LONG / GO SHORT (Trend Continuation).
-- Rule of Asymmetry: Mentally calculate $R:R = \\frac{{|Magnet Target - Current Price|}}{{|Current Price - Nearest Structural Threat|}}$. If Asymmetry is highly favorable and volume is not actively opposing the setup, execute the trade regardless of isolated timeframe conflicts.
-- Veto Condition: ONLY output "SIT ON HANDS" if price is trapped in the middle of a range with no clear magnet, OR if high-momentum volume is aggressively opposing the structural level (e.g., heavy expanding volume smashing through support).
-
---- SUB-AGENT REPORTS ---
-Technical Agent Report:
-{json.dumps(tech_report, indent=2)}
-
-Volume Agent Report:
-{json.dumps(vol_report, indent=2)}
-
---- CURRENT 15m MARKET DATA (For Context) ---
-Price: ${data_15m.get('price', 0)}
-"""
-
-            with console.status("[bold cyan]Agent 3 (Greedy Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
-                agent3_greed_response = client.models.generate_content(
-                    model="gemini-3.1-flash-lite-preview",
-                    contents=agent3_greedy_prompt,
-                    config={"response_mime_type": "application/json", "response_schema": Agent3ManagerSchema}
-                )
-
-            try:
-                greed_report = json.loads(agent3_greed_response.text)
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to parse Agent 3 (Greedy) JSON output. Raw text: {agent3_greed_response.text}", exc_info=True)
-                typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-                raise typer.Exit(code=1)
-
-            greed_verdict = greed_report.get('final_verdict', 'SIT ON HANDS')
-            greed_summary = (
-                f"[bold]Executive Summary:[/bold]\n{greed_report.get('executive_summary', '')}\n\n"
-                f"[bold]Confluence Matrix:[/bold]\n{format_pipe_string(greed_report.get('confluence_matrix', ''))}\n\n"
-                f"[bold]Risk Vector:[/bold]\n{format_pipe_string(greed_report.get('risk_vector', ''))}\n\n"
-                f"[bold]Final Verdict:[/bold] {greed_verdict}"
-            )
-
-            console.print(Panel(greed_summary, title="[Greedy Strategy Synthesis]", border_style="yellow", box=box.ROUNDED, expand=False))
-
-            filepath = log_execution("analyze", "greedy", symbol, data_4h, data_15m, tech_report, vol_report, greed_report)
-            console.print(f"[dim]💾 Greedy Footprint saved to: {filepath}[/dim]")
+        filepath = log_execution("analyze", symbol, data_4h, data_15m, tech_report, vol_report, strategist_report)
+        console.print(f"[dim]💾 Footprint saved to: {filepath}[/dim]")
 
     except typer.Exit:
         # Re-raise Typer's Exit exception so the CLI can exit gracefully
@@ -1014,41 +929,19 @@ def status_command(symbol: str = typer.Argument("BTC/USDT")):
     _run_status(symbol)
 
 @app.command("analyze")
-def analyze_command(
-    symbol: str = typer.Argument("BTC/USDT"),
-    def_flag: bool = typer.Option(False, "--def", help="Run ONLY the Defensive Strategy"),
-    greed_flag: bool = typer.Option(False, "--greed", help="Run ONLY the Greedy Strategy")
-):
+def analyze_command(symbol: str = typer.Argument("BTC/USDT")):
     """
     Fetch MTF (4h, 15m) data and execute trading analysis via AI agents.
-    Outputs the Lead Market Strategist thesis for selected strategies.
+    Outputs the Lead Market Strategist thesis.
     """
-    if def_flag and greed_flag:
-        console.print("[red]ERROR: Cannot pass both flags. To run both, omit flags entirely.[/red]")
-        raise typer.Exit(1)
-
-    run_def = True if not greed_flag else False
-    run_greed = True if not def_flag else False
-
-    _run_analyze(symbol, run_def=run_def, run_greed=run_greed)
+    _run_analyze(symbol)
 
 @app.command("operate")
-def operate_command(
-    symbol: str = typer.Argument("BTC/USDT"),
-    def_flag: bool = typer.Option(False, "--def", help="Run ONLY the Defensive Strategy"),
-    greed_flag: bool = typer.Option(False, "--greed", help="Run ONLY the Greedy Strategy")
-):
+def operate_command(symbol: str = typer.Argument("BTC/USDT")):
     """
     Execute trading operations based on recent analysis.
     """
-    if def_flag and greed_flag:
-        console.print("[red]ERROR: Cannot pass both flags. To run both, omit flags entirely.[/red]")
-        raise typer.Exit(1)
-
-    run_def = True if not greed_flag else False
-    run_greed = True if not def_flag else False
-
-    _run_operate(symbol, run_def=run_def, run_greed=run_greed)
+    _run_operate(symbol)
 
 @app.command("mock")
 def mock_command(filename: str = typer.Argument(..., help="The mock payload file name (e.g. mock_long.json)")):
@@ -1072,24 +965,14 @@ def mock_command(filename: str = typer.Argument(..., help="The mock payload file
 
 
 @app.command("auto")
-def auto_command(
-    symbol: str = typer.Argument("BTC/USDT"),
-    def_flag: bool = typer.Option(False, "--def", help="Run ONLY the Defensive Strategy"),
-    greed_flag: bool = typer.Option(False, "--greed", help="Run ONLY the Greedy Strategy")
-):
+def auto_command(symbol: str = typer.Argument("BTC/USDT")):
     """
     Execute the entire sequential pipeline: Status -> Analyze -> Operate.
     """
-    if def_flag and greed_flag:
-        console.print("[red]ERROR: Cannot pass both flags. To run both, omit flags entirely.[/red]")
-        raise typer.Exit(1)
-
-    run_def = True if not greed_flag else False
-    run_greed = True if not def_flag else False
-
+    _check_open_positions(symbol)
     _run_status(symbol)
-    _run_analyze(symbol, run_def=run_def, run_greed=run_greed)
-    _run_operate(symbol, run_def=run_def, run_greed=run_greed)
+    _run_analyze(symbol)
+    _run_operate(symbol)
 
 @app.command()
 def ask(question: str):
