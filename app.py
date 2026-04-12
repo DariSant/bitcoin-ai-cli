@@ -72,6 +72,31 @@ def format_pipe_string(text: str) -> str:
     return "\n".join(f"  • {seg}" for seg in segments)
 
 
+def render_execution_ticket(ticket: dict, strategy: str):
+    """
+    Centralized function to render an execution ticket cleanly.
+    """
+    verdict = ticket.get("verdict", "")
+    panel_color = "green" if verdict == "GO LONG" else "red" if verdict == "GO SHORT" else "yellow"
+
+    timestamp = ticket.get("entry_timestamp", datetime.now().timestamp())
+    opened_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+
+    operator_summary = (
+        f"[bold {panel_color}]Verdict:[/] {verdict}\n\n"
+        f"[bold {panel_color}]Opened:[/] {opened_str}\n"
+        f"[bold {panel_color}]Order Type:[/] {ticket.get('order_type', '')}\n"
+        f"[bold {panel_color}]Entry Price:[/] ${ticket.get('entry_price', 0):,.2f}\n"
+        f"[bold {panel_color}]Stop Loss:[/] ${ticket.get('stop_loss', 0):,.2f}\n"
+        f"[bold {panel_color}]Take Profit:[/] ${ticket.get('take_profit', 0):,.2f}\n"
+        f"[bold {panel_color}]Risk/Reward Ratio:[/] {ticket.get('risk_reward_ratio', 0):.2f}\n"
+        f"[bold {panel_color}]Position Size USD:[/] ${ticket.get('position_size_usd', 0):,.2f}"
+    )
+
+    panel_title = f"╭─ [ {strategy.upper()} Operator: Execution Ticket ] ─╮"
+    console.print(Panel(operator_summary, title=panel_title, border_style=panel_color, box=box.ROUNDED, expand=False))
+
+
 def _check_open_positions(symbol: str, strategy: str) -> bool:
     """
     Pre-flight check for open positions. Reads output_alpha/{strategy}/{symbol}_paper_ledger.json.
@@ -190,10 +215,8 @@ def _check_open_positions(symbol: str, strategy: str) -> bool:
         return False
 
     else:
-        console.print(Panel(
-            f"[yellow]Position currently OPEN ({strategy.upper()}). Waiting for TP/SL. Execution halted for this strategy.[/yellow]",
-            title="[State Check]", border_style="yellow", box=box.ROUNDED, expand=False
-        ))
+        render_execution_ticket(ledger, strategy)
+        console.print(f"[yellow]Status: Active position detected for {strategy.upper()}. Execution halted until TP/SL resolution.[/yellow]")
         return True
 
 
@@ -410,10 +433,6 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
     if run_greed and not _check_open_positions(symbol, "greedy"):
         strategies_to_run.append("greedy")
 
-    if not strategies_to_run:
-        typer.secho("\n[yellow]No strategies eligible for operation (either disabled or positions open).[/yellow]\n", fg=typer.colors.YELLOW)
-        raise typer.Exit()
-
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
@@ -425,19 +444,19 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
         analyze_dir = pathlib.Path(f"output_alpha/analyze/{strategy}")
 
         if not analyze_dir.exists():
-            typer.secho(f"[yellow]No recent analysis found for {strategy.upper()} strategy.[/yellow]", fg=typer.colors.YELLOW)
+            console.print(f"[yellow]No recent analysis found for {strategy.upper()} strategy.[/yellow]")
             continue
 
         json_files = list(analyze_dir.rglob("*.json"))
         if not json_files:
-            typer.secho(f"[yellow]No recent analysis found for {strategy.upper()} strategy.[/yellow]", fg=typer.colors.YELLOW)
+            console.print(f"[yellow]No recent analysis found for {strategy.upper()} strategy.[/yellow]")
             continue
 
         # Filter files for the requested symbol
         symbol_files = [f for f in json_files if symbol.replace("/", "") in f.name]
 
         if not symbol_files:
-            typer.secho(f"[yellow]No recent analysis found for {symbol} on {strategy.upper()} strategy.[/yellow]", fg=typer.colors.YELLOW)
+            console.print(f"[yellow]No recent analysis found for {symbol} on {strategy.upper()} strategy.[/yellow]")
             continue
 
         # Sort files by modification time descending to get the most recent one
@@ -457,14 +476,14 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
 
             diff = now_dt - file_time
             if diff.total_seconds() > 600:
-                typer.secho(f"[yellow]No recent analysis has been run in the last 10 minutes for {strategy.upper()}.[/yellow]", fg=typer.colors.YELLOW)
+                console.print(f"[yellow]No recent analysis has been run in the last 10 minutes for {strategy.upper()}.[/yellow]")
                 continue
 
             synthesis = data.get("agent_3_synthesis", {})
             final_verdict = synthesis.get("final_verdict", "SIT ON HANDS")
 
             if final_verdict == "SIT ON HANDS":
-                typer.secho(f"\n[yellow]Final Verdict for {strategy.upper()} is SIT ON HANDS. Execution bypassed.[/yellow]", fg=typer.colors.YELLOW, bold=True)
+                console.print(f"\n[yellow]{strategy.capitalize()} Verdict: SIT ON HANDS. Bypassing execution.[/yellow]")
                 continue
 
             console.print(f"\n[green]Proceeding to Agent 4 Execution for {strategy.upper()} Strategy...[/green]")
@@ -534,19 +553,18 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
                 "position_size_usd": round(position_size_usd, 2)
             }
 
-            # Print Operator Panel
-            operator_summary = (
-                f"[bold]Order Type:[/bold] {operator_report.get('order_type', '')}\n"
-                f"[bold]Entry Price:[/bold] ${operator_report.get('entry_price', 0):,.2f}\n"
-                f"[bold]Stop Loss:[/bold] ${operator_report.get('stop_loss', 0):,.2f}\n"
-                f"[bold]Take Profit:[/bold] ${operator_report.get('take_profit', 0):,.2f}\n"
-                f"[bold]Risk/Reward Ratio:[/bold] {operator_report.get('risk_reward_ratio', 0):.2f}\n"
-                f"[bold]Position Size USD:[/bold] ${operator_report.get('position_size_usd', 0):,.2f}"
-            )
-
-            panel_title = f"[{strategy.capitalize()} Operator - Execution Ticket]"
-            panel_color = "cyan" if strategy == "defensive" else "yellow"
-            console.print(Panel(operator_summary, title=panel_title, border_style=panel_color, box=box.ROUNDED, expand=False))
+            # Render Operator Panel using centralized ticket
+            ticket_data = {
+                "verdict": final_verdict,
+                "order_type": operator_report.get("order_type"),
+                "entry_price": operator_report.get("entry_price"),
+                "stop_loss": operator_report.get("stop_loss"),
+                "take_profit": operator_report.get("take_profit"),
+                "risk_reward_ratio": operator_report.get("risk_reward_ratio"),
+                "position_size_usd": operator_report.get("position_size_usd"),
+                "entry_timestamp": datetime.now().timestamp()
+            }
+            render_execution_ticket(ticket_data, strategy)
 
             # --- Save Execution Footprint ---
             now = datetime.now()
@@ -671,21 +689,18 @@ def _run_mock(filename: str):
         "position_size_usd": round(position_size_usd, 2)
     }
 
-    # Set styling dynamically based on the verdict
-    panel_color = "green" if verdict == "GO LONG" else "red"
-
-    # Print Operator Panel
-    operator_summary = (
-        f"[bold {panel_color}]Verdict:[/] {verdict}\n\n"
-        f"[bold {panel_color}]Order Type:[/] {operator_report.get('order_type', '')}\n"
-        f"[bold {panel_color}]Entry Price:[/] ${operator_report.get('entry_price', 0):,.2f}\n"
-        f"[bold {panel_color}]Stop Loss:[/] ${operator_report.get('stop_loss', 0):,.2f}\n"
-        f"[bold {panel_color}]Take Profit:[/] ${operator_report.get('take_profit', 0):,.2f}\n"
-        f"[bold {panel_color}]Risk/Reward Ratio:[/] {operator_report.get('risk_reward_ratio', 0):.2f}\n"
-        f"[bold {panel_color}]Position Size USD:[/] ${operator_report.get('position_size_usd', 0):,.2f}"
-    )
-
-    console.print(Panel(operator_summary, title="[Operator: Execution Ticket]", border_style=panel_color, box=box.ROUNDED, expand=False))
+    # Render Operator Panel using centralized ticket
+    ticket_data = {
+        "verdict": verdict,
+        "order_type": operator_report.get("order_type"),
+        "entry_price": operator_report.get("entry_price"),
+        "stop_loss": operator_report.get("stop_loss"),
+        "take_profit": operator_report.get("take_profit"),
+        "risk_reward_ratio": operator_report.get("risk_reward_ratio"),
+        "position_size_usd": operator_report.get("position_size_usd"),
+        "entry_timestamp": datetime.now().timestamp()
+    }
+    render_execution_ticket(ticket_data, "MOCK")
 
 
 def _run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True):
@@ -695,10 +710,6 @@ def _run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
     """
     skip_def = _check_open_positions(symbol, "defensive") if run_def else True
     skip_greed = _check_open_positions(symbol, "greedy") if run_greed else True
-
-    if skip_def and skip_greed:
-        typer.secho("\n[yellow]Both strategies have OPEN positions or are disabled. Execution halted.[/yellow]\n", fg=typer.colors.YELLOW)
-        raise typer.Exit()
 
     # Ensure the Gemini API key is loaded securely
     api_key = os.getenv("GEMINI_API_KEY")
