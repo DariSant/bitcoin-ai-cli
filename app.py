@@ -547,7 +547,15 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
             entry_price = current_price
 
             if final_verdict == "GO LONG":
-                stop_loss = agent_1_threat_level - (0.5 * atr_14)
+                # Calculate baseline SL from structural threat + 0.5 ATR
+                proposed_stop_loss = agent_1_threat_level - (0.5 * atr_14)
+
+                # Calculate a pure volatility SL (1 full ATR below entry)
+                min_volatility_stop = current_price - atr_14
+
+                # The Stop Loss must be the LOWER of the two (safest distance)
+                stop_loss = min(proposed_stop_loss, min_volatility_stop)
+
                 take_profit = agent_2_magnet_target
 
                 if stop_loss >= current_price or take_profit <= current_price:
@@ -584,7 +592,15 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
                 position_size_usd = position_size_btc * current_price
 
             elif final_verdict == "GO SHORT":
-                stop_loss = agent_1_threat_level + (0.5 * atr_14)
+                # Calculate baseline SL from structural threat + 0.5 ATR
+                proposed_stop_loss = agent_1_threat_level + (0.5 * atr_14)
+
+                # Calculate a pure volatility SL (1 full ATR above entry)
+                min_volatility_stop = current_price + atr_14
+
+                # The Stop Loss must be the HIGHER of the two (safest distance)
+                stop_loss = max(proposed_stop_loss, min_volatility_stop)
+
                 take_profit = agent_2_magnet_target
 
                 if stop_loss <= current_price or take_profit >= current_price:
