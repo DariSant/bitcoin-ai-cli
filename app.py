@@ -522,7 +522,15 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
             else: # "GO SHORT"
                 agent_1_threat_level = calculated_resistance
 
-            agent_2_magnet_target = poc_price
+            raw_magnet_string = data.get("agent_2_volume", {}).get("magnet_target", "")
+
+            try:
+                target_section = raw_magnet_string.split('|')[0]
+                number_str = target_section.split(':')[1]
+                agent_2_magnet_target = float(number_str.strip())
+            except (IndexError, ValueError, AttributeError):
+                agent_2_magnet_target = poc_price
+                console.print(f"[yellow]Warning: Could not parse Agent 2 Magnet '{raw_magnet_string}'. Falling back to POC.[/yellow]")
 
             operator_payload = {
                 "verdict": final_verdict,
