@@ -1,0 +1,7 @@
+README.md
+pyproject.toml
+bitcoin_ai_cli.egg-info/PKG-INFO
+bitcoin_ai_cli.egg-info/SOURCES.txt
+bitcoin_ai_cli.egg-info/dependency_links.txt
+bitcoin_ai_cli.egg-info/requires.txt
+bitcoin_ai_cli.egg-info/top_level.txt

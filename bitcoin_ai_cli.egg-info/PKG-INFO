@@ -1,0 +1,38 @@
+Metadata-Version: 2.4
+Name: bitcoin-ai-cli
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.13
+Description-Content-Type: text/markdown
+Requires-Dist: ccxt>=4.5.43
+Requires-Dist: google-genai>=1.67.0
+Requires-Dist: pandas>=2.3.3
+Requires-Dist: pandas-ta>=0.4.71b0
+Requires-Dist: python-dotenv>=1.2.2
+Requires-Dist: requests>=2.32.5
+Requires-Dist: typer>=0.24.1
+Requires-Dist: rich>=13.9.4
+
+# Bitcoin AI CLI Tool
+
+A simple command-line tool that fetches and displays the current price of Bitcoin.
+
+## Prerequisites
+
+To run this tool, you will need the `requests` library. We use the `requests` library because it is the standard and most simple way in Python to make HTTP requests (like fetching data from the CoinGecko API). It's much easier to use and read than Python's built-in `urllib`.
+
+### Installation
+
+To install the `requests` library using `uv`, run the following exact command in your terminal:
+
+```bash
+uv pip install requests
+```
+
+## Running the Script
+
+Once the library is installed, you can run the script with the following exact command:
+
+```bash
+uv run app.py
+```
