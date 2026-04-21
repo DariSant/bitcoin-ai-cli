@@ -27,6 +27,9 @@ logging.basicConfig(
 # Instantiate the Rich console
 console = Console()
 
+# Global variables
+BASE_DIR = "output_alpha"
+
 # Create the Typer app instance
 app = typer.Typer(help="Bitcoin AI CLI Tool")
 
@@ -58,6 +61,66 @@ def get_bias_color(bias: str) -> str:
     elif bias in ("STRONGLY_BEARISH", "BEARISH"):
         return "red"
     return "yellow"
+
+def query_llm_with_fallback(client, prompt: str, schema_class, agent_name: str, ticker: str = "BTC/USDT") -> tuple[str | None, str | None]:
+    """
+    Centralized function that handles all LLM requests with an instant failover.
+    """
+    primary_model = "gemini-3.1-flash-lite-preview"
+    fallback_model = "gemini-2.5-flash"
+
+    config_dict = None
+    if schema_class:
+        config_dict = {"response_mime_type": "application/json", "response_schema": schema_class}
+
+    try:
+        response = client.models.generate_content(
+            model=primary_model,
+            contents=prompt,
+            config=config_dict
+        )
+        return response.text, primary_model
+    except Exception as e:
+        error_type = type(e).__name__
+        error_message = str(e)
+
+        failover_msg = (
+            f"[bold yellow]⚠️ LLM ENDPOINT REROUTE TRIGGERED[/bold yellow]\n\n"
+            f"Primary Model ({primary_model}) is currently unreachable.\n"
+            f"Issue: {error_type} - {error_message}\n\n"
+            f"Status: Instant failover to {fallback_model} initiated.\n"
+            f"Routing: Diverting cycle data to [cyan]output_beta/[/cyan] to protect lake."
+        )
+        console.print(Panel(failover_msg, border_style="yellow", expand=False))
+
+        # Log to system_health.log
+        log_dir = "logs"
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "system_health.log")
+
+        health_payload = {
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "ticker": ticker,
+            "agent_failing": agent_name,
+            "error_code": error_type,
+            "error_message": error_message,
+            "primary_model": primary_model,
+            "fallback_model": fallback_model,
+            "data_routed_to": "output_beta"
+        }
+
+        with open(log_path, "a") as f:
+            f.write(json.dumps(health_payload) + "\n")
+
+        try:
+            fallback_response = client.models.generate_content(
+                model=fallback_model,
+                contents=prompt,
+                config=config_dict
+            )
+            return fallback_response.text, fallback_model
+        except Exception as fallback_e:
+            return None, None
 
 def format_pipe_string(text: str) -> str:
     """
@@ -121,10 +184,10 @@ def _check_open_positions(symbol: str, strategy: str) -> bool:
     clean_symbol = symbol.replace("/", "_")
 
     # Ensure strategy directory exists
-    os.makedirs(f"output_alpha/{strategy}", exist_ok=True)
+    os.makedirs(f"{BASE_DIR}/{strategy}", exist_ok=True)
 
-    ledger_path = f"output_alpha/{strategy}/{clean_symbol}_paper_ledger.json"
-    history_path = f"output_alpha/{strategy}/{clean_symbol}_trade_history.json"
+    ledger_path = f"{BASE_DIR}/{strategy}/{clean_symbol}_paper_ledger.json"
+    history_path = f"{BASE_DIR}/{strategy}/{clean_symbol}_trade_history.json"
 
     if not os.path.exists(ledger_path):
         return False
@@ -241,10 +304,10 @@ def _check_open_positions(symbol: str, strategy: str) -> bool:
 
 def log_execution(command_name: str, strategy: str, symbol: str, data_4h: dict, data_15m: dict, agent1_report: dict = None, agent2_report: dict = None, agent3_report: dict = None) -> str:
     """
-    Universally log execution state to a JSON footprint in output_alpha/.
+    Universally log execution state to a JSON footprint in BASE_DIR/.
     """
     now = datetime.now()
-    directory_path = f"output_alpha/{command_name}/{strategy}/{now.strftime('%Y-%m')}/"
+    directory_path = f"{BASE_DIR}/{command_name}/{strategy}/{now.strftime('%Y-%m')}/"
     os.makedirs(directory_path, exist_ok=True)
 
     strategy_prefix = "DEF" if strategy == "defensive" else "GREED" if strategy == "greedy" else strategy.upper()
@@ -468,7 +531,7 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
     client = genai.Client(api_key=api_key)
 
     for strategy in strategies_to_run:
-        analyze_dir = pathlib.Path(f"output_alpha/analyze/{strategy}")
+        analyze_dir = pathlib.Path(f"{BASE_DIR}/analyze/{strategy}")
 
         if not analyze_dir.exists():
             console.print(f"[yellow]No recent analysis found for {strategy.upper()} strategy.[/yellow]")
@@ -587,7 +650,7 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
                         f"SL: {stop_loss} | "
                         f"TP: {take_profit}\n"
                     )
-                    log_path = "output_alpha/operator_errors.log"
+                    log_path = f"{BASE_DIR}/operator_errors.log"
                     os.makedirs(os.path.dirname(log_path), exist_ok=True)
                     with open(log_path, "a") as f:
                         f.write(log_entry)
@@ -632,7 +695,7 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
                         f"SL: {stop_loss} | "
                         f"TP: {take_profit}\n"
                     )
-                    log_path = "output_alpha/operator_errors.log"
+                    log_path = f"{BASE_DIR}/operator_errors.log"
                     os.makedirs(os.path.dirname(log_path), exist_ok=True)
                     with open(log_path, "a") as f:
                         f.write(log_entry)
@@ -669,7 +732,7 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
 
             # --- Save Execution Footprint ---
             now = datetime.now()
-            directory_path = f"output_alpha/operate/{strategy}/{now.strftime('%Y-%m')}/"
+            directory_path = f"{BASE_DIR}/operate/{strategy}/{now.strftime('%Y-%m')}/"
             os.makedirs(directory_path, exist_ok=True)
 
             strategy_prefix = "DEF" if strategy == "defensive" else "GREED"
@@ -695,7 +758,7 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
 
             # --- Save Active Ledger (paper_ledger.json) ---
             clean_symbol = symbol.replace("/", "_")
-            ledger_path = f"output_alpha/{strategy}/{clean_symbol}_paper_ledger.json"
+            ledger_path = f"{BASE_DIR}/{strategy}/{clean_symbol}_paper_ledger.json"
 
             ledger_entry = {
                 "symbol": symbol,
@@ -884,17 +947,22 @@ Synthesize the provided JSON payload into the schema above. Prioritize mathemati
 {tech_payload}
 """
 
+        global BASE_DIR
+
         with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
-            agent1_response = client.models.generate_content(
-                model="gemini-3.1-flash-lite-preview",
-                contents=agent1_prompt,
-                config={"response_mime_type": "application/json", "response_schema": Agent1TechSchema}
-            )
+            agent1_text, active_model = query_llm_with_fallback(client, agent1_prompt, Agent1TechSchema, "agent_1_technical", symbol)
+
+        if agent1_text is None:
+            console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
+            return
+
+        if active_model == "gemini-2.5-flash":
+            BASE_DIR = "output_beta"
 
         try:
-            tech_report = json.loads(agent1_response.text)
+            tech_report = json.loads(agent1_text)
         except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse Agent 1 (Technical) JSON output. Raw text: {agent1_response.text}", exc_info=True)
+            logging.error(f"Failed to parse Agent 1 (Technical) JSON output. Raw text: {agent1_text}", exc_info=True)
             typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
             raise typer.Exit(code=1)
 
@@ -941,16 +1009,19 @@ Synthesize the provided JSON payload into the schema above. Track the math, map 
 """
 
         with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
-            agent2_response = client.models.generate_content(
-                model="gemini-3.1-flash-lite-preview",
-                contents=agent2_prompt,
-                config={"response_mime_type": "application/json", "response_schema": Agent2VolumeSchema}
-            )
+            agent2_text, active_model = query_llm_with_fallback(client, agent2_prompt, Agent2VolumeSchema, "agent_2_volume", symbol)
+
+        if agent2_text is None:
+            console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
+            return
+
+        if active_model == "gemini-2.5-flash":
+            BASE_DIR = "output_beta"
 
         try:
-            vol_report = json.loads(agent2_response.text)
+            vol_report = json.loads(agent2_text)
         except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse Agent 2 (Volume) JSON output. Raw text: {agent2_response.text}", exc_info=True)
+            logging.error(f"Failed to parse Agent 2 (Volume) JSON output. Raw text: {agent2_text}", exc_info=True)
             typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
             raise typer.Exit(code=1)
 
@@ -1005,32 +1076,39 @@ Price: ${data_15m.get('price', 0)}
 """
 
             with console.status("[bold cyan]Agent 3 (Defensive Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
-                agent3_def_response = client.models.generate_content(
-                    model="gemini-3.1-flash-lite-preview",
-                    contents=agent3_defensive_prompt,
-                    config={"response_mime_type": "application/json", "response_schema": Agent3ManagerSchema}
+                agent3_def_text, active_model = query_llm_with_fallback(client, agent3_defensive_prompt, Agent3ManagerSchema, "agent_3_defensive", symbol)
+
+            if agent3_def_text is None:
+                console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
+                # Use continue equivalent if we were in a loop, but here it's an if-block.
+                # However, this agent is just the defensive part, so we can skip this particular execution.
+                # Since it's not a loop, we skip the rest of the defensive block by returning or skipping.
+                # But we might need to still process greedy. So we will skip the rest of defensive.
+                pass
+            else:
+                if active_model == "gemini-2.5-flash":
+                    BASE_DIR = "output_beta"
+
+                try:
+                    def_report = json.loads(agent3_def_text)
+                except json.JSONDecodeError as e:
+                    logging.error(f"Failed to parse Agent 3 (Defensive) JSON output. Raw text: {agent3_def_text}", exc_info=True)
+                    typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+                    raise typer.Exit(code=1)
+
+                def_verdict = def_report.get('final_verdict', 'SIT ON HANDS')
+                def_summary = (
+                    f"[bold]Executive Summary:[/bold]\n{def_report.get('executive_summary', '')}\n\n"
+                    f"[bold]Confluence Matrix:[/bold]\n{format_pipe_string(def_report.get('confluence_matrix', ''))}\n\n"
+                    f"[bold]Risk Vector:[/bold]\n{format_pipe_string(def_report.get('risk_vector', ''))}\n\n"
+                    f"[bold]Final Verdict:[/bold] {def_verdict}"
                 )
 
-            try:
-                def_report = json.loads(agent3_def_response.text)
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to parse Agent 3 (Defensive) JSON output. Raw text: {agent3_def_response.text}", exc_info=True)
-                typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-                raise typer.Exit(code=1)
+                console.print(Panel(def_summary, title="[Defensive Strategy Synthesis]", border_style="magenta", box=box.ROUNDED, expand=False))
 
-            def_verdict = def_report.get('final_verdict', 'SIT ON HANDS')
-            def_summary = (
-                f"[bold]Executive Summary:[/bold]\n{def_report.get('executive_summary', '')}\n\n"
-                f"[bold]Confluence Matrix:[/bold]\n{format_pipe_string(def_report.get('confluence_matrix', ''))}\n\n"
-                f"[bold]Risk Vector:[/bold]\n{format_pipe_string(def_report.get('risk_vector', ''))}\n\n"
-                f"[bold]Final Verdict:[/bold] {def_verdict}"
-            )
-
-            console.print(Panel(def_summary, title="[Defensive Strategy Synthesis]", border_style="magenta", box=box.ROUNDED, expand=False))
-
-            filepath = log_execution("analyze", "defensive", symbol, data_4h, data_15m, tech_report, vol_report, def_report)
-            now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-            console.print(f"[dim]💾 [{now_utc_str}] Defensive Footprint saved to: {filepath}[/dim]")
+                filepath = log_execution("analyze", "defensive", symbol, data_4h, data_15m, tech_report, vol_report, def_report)
+                now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                console.print(f"[dim]💾 [{now_utc_str}] Defensive Footprint saved to: {filepath}[/dim]")
 
         # --- Agent 3: Lead Market Strategist (Greedy) ---
         if not skip_greed:
@@ -1069,32 +1147,35 @@ Price: ${data_15m.get('price', 0)}
 """
 
             with console.status("[bold cyan]Agent 3 (Greedy Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
-                agent3_greed_response = client.models.generate_content(
-                    model="gemini-3.1-flash-lite-preview",
-                    contents=agent3_greedy_prompt,
-                    config={"response_mime_type": "application/json", "response_schema": Agent3ManagerSchema}
+                agent3_greed_text, active_model = query_llm_with_fallback(client, agent3_greedy_prompt, Agent3ManagerSchema, "agent_3_greedy", symbol)
+
+            if agent3_greed_text is None:
+                console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
+                pass
+            else:
+                if active_model == "gemini-2.5-flash":
+                    BASE_DIR = "output_beta"
+
+                try:
+                    greed_report = json.loads(agent3_greed_text)
+                except json.JSONDecodeError as e:
+                    logging.error(f"Failed to parse Agent 3 (Greedy) JSON output. Raw text: {agent3_greed_text}", exc_info=True)
+                    typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
+                    raise typer.Exit(code=1)
+
+                greed_verdict = greed_report.get('final_verdict', 'SIT ON HANDS')
+                greed_summary = (
+                    f"[bold]Executive Summary:[/bold]\n{greed_report.get('executive_summary', '')}\n\n"
+                    f"[bold]Confluence Matrix:[/bold]\n{format_pipe_string(greed_report.get('confluence_matrix', ''))}\n\n"
+                    f"[bold]Risk Vector:[/bold]\n{format_pipe_string(greed_report.get('risk_vector', ''))}\n\n"
+                    f"[bold]Final Verdict:[/bold] {greed_verdict}"
                 )
 
-            try:
-                greed_report = json.loads(agent3_greed_response.text)
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to parse Agent 3 (Greedy) JSON output. Raw text: {agent3_greed_response.text}", exc_info=True)
-                typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-                raise typer.Exit(code=1)
+                console.print(Panel(greed_summary, title="[Greedy Strategy Synthesis]", border_style="yellow", box=box.ROUNDED, expand=False))
 
-            greed_verdict = greed_report.get('final_verdict', 'SIT ON HANDS')
-            greed_summary = (
-                f"[bold]Executive Summary:[/bold]\n{greed_report.get('executive_summary', '')}\n\n"
-                f"[bold]Confluence Matrix:[/bold]\n{format_pipe_string(greed_report.get('confluence_matrix', ''))}\n\n"
-                f"[bold]Risk Vector:[/bold]\n{format_pipe_string(greed_report.get('risk_vector', ''))}\n\n"
-                f"[bold]Final Verdict:[/bold] {greed_verdict}"
-            )
-
-            console.print(Panel(greed_summary, title="[Greedy Strategy Synthesis]", border_style="yellow", box=box.ROUNDED, expand=False))
-
-            filepath = log_execution("analyze", "greedy", symbol, data_4h, data_15m, tech_report, vol_report, greed_report)
-            now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-            console.print(f"[dim]💾 [{now_utc_str}] Greedy Footprint saved to: {filepath}[/dim]")
+                filepath = log_execution("analyze", "greedy", symbol, data_4h, data_15m, tech_report, vol_report, greed_report)
+                now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                console.print(f"[dim]💾 [{now_utc_str}] Greedy Footprint saved to: {filepath}[/dim]")
 
     except typer.Exit:
         # Re-raise Typer's Exit exception so the CLI can exit gracefully
@@ -1210,21 +1291,20 @@ def ask(question: str):
         # Initialize the Google GenAI client
         client = genai.Client(api_key=api_key)
 
-        # Define the specific Gemma model we are using
-        model_id = "gemini-3.1-flash-lite-preview"
+        typer.secho(f"Thinking...", fg=typer.colors.YELLOW)
 
-        typer.secho(f"Thinking... (Model: {model_id})", fg=typer.colors.YELLOW)
+        # Use the global fallback wrapper
+        # schema_class is None because this is a raw prompt, no strict json schema required
+        response_text, active_model = query_llm_with_fallback(client, question, None, "ask_agent", "N/A")
 
-        # Call the Google GenAI model to generate content
-        response = client.models.generate_content(
-            model=model_id,
-            contents=question
-        )
+        if response_text is None:
+            typer.secho("\n❌ Error: Both models unreachable. Please try again later.\n", fg=typer.colors.RED, bold=True)
+            raise typer.Exit(code=1)
 
         # Print the response cleanly to the console
-        typer.secho("\n🤖 AI Response:", fg=typer.colors.MAGENTA, bold=True)
+        typer.secho(f"\n🤖 AI Response (Model: {active_model}):", fg=typer.colors.MAGENTA, bold=True)
         typer.secho("-" * 40, fg=typer.colors.MAGENTA)
-        typer.echo(response.text)
+        typer.echo(response_text)
         typer.secho("-" * 40 + "\n", fg=typer.colors.MAGENTA)
 
     except genai.errors.APIError as e:
