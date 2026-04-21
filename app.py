@@ -522,7 +522,15 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
             else: # "GO SHORT"
                 agent_1_threat_level = calculated_resistance
 
-            agent_2_magnet_target = poc_price
+            raw_magnet_string = data.get("agent_2_volume", {}).get("magnet_target", "")
+
+            try:
+                target_section = raw_magnet_string.split('|')[0]
+                number_str = target_section.split(':')[1]
+                agent_2_magnet_target = float(number_str.strip())
+            except (IndexError, ValueError, AttributeError):
+                agent_2_magnet_target = poc_price
+                console.print(f"[yellow]Warning: Could not parse Agent 2 Magnet '{raw_magnet_string}'. Falling back to POC.[/yellow]")
 
             operator_payload = {
                 "verdict": final_verdict,
@@ -539,11 +547,44 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
             entry_price = current_price
 
             if final_verdict == "GO LONG":
-                stop_loss = agent_1_threat_level - (0.5 * atr_14)
+                # Calculate baseline SL from structural threat + 0.5 ATR
+                proposed_stop_loss = agent_1_threat_level - (0.5 * atr_14)
+
+                # Calculate a pure volatility SL (1 full ATR below entry)
+                min_volatility_stop = current_price - atr_14
+
+                # The Stop Loss must be the LOWER of the two (safest distance)
+                stop_loss = min(proposed_stop_loss, min_volatility_stop)
+
                 take_profit = agent_2_magnet_target
 
                 if stop_loss >= current_price or take_profit <= current_price:
-                    console.print(Panel("[bold red]⛔ INVALID TICKET: Mathematical risk logic or Magnet target contradicts the trade direction. Execution halted.[/bold red]", border_style="red", box=box.ROUNDED, expand=False))
+                    diagnostic_text = (
+                        f"[bold red]⛔ INVALID TICKET LOGIC DETECTED[/bold red]\n\n"
+                        f"Verdict: {final_verdict}\n"
+                        f"Current Price: {current_price}\n"
+                        f"Threat Level (from Agent 1): {agent_1_threat_level} (Type: {type(agent_1_threat_level)})\n"
+                        f"Magnet Target (from Agent 2): {agent_2_magnet_target} (Type: {type(agent_2_magnet_target)})\n"
+                        f"Calculated Stop Loss: {stop_loss}\n"
+                        f"Calculated Take Profit: {take_profit}"
+                    )
+                    console.print(Panel(diagnostic_text, border_style="red", box=box.ROUNDED, expand=False))
+
+                    timestamp_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                    log_entry = (
+                        f"[{timestamp_str}] ERROR: INVALID TICKET LOGIC | "
+                        f"Verdict: {final_verdict} | "
+                        f"Price: {current_price} | "
+                        f"Threat: {agent_1_threat_level} | "
+                        f"Magnet: {agent_2_magnet_target} | "
+                        f"SL: {stop_loss} | "
+                        f"TP: {take_profit}\n"
+                    )
+                    log_path = "output_alpha/operator_errors.log"
+                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                    with open(log_path, "a") as f:
+                        f.write(log_entry)
+
                     continue
 
                 risk_reward_ratio = (take_profit - current_price) / (current_price - stop_loss)
@@ -551,11 +592,44 @@ def _run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
                 position_size_usd = position_size_btc * current_price
 
             elif final_verdict == "GO SHORT":
-                stop_loss = agent_1_threat_level + (0.5 * atr_14)
+                # Calculate baseline SL from structural threat + 0.5 ATR
+                proposed_stop_loss = agent_1_threat_level + (0.5 * atr_14)
+
+                # Calculate a pure volatility SL (1 full ATR above entry)
+                min_volatility_stop = current_price + atr_14
+
+                # The Stop Loss must be the HIGHER of the two (safest distance)
+                stop_loss = max(proposed_stop_loss, min_volatility_stop)
+
                 take_profit = agent_2_magnet_target
 
                 if stop_loss <= current_price or take_profit >= current_price:
-                    console.print(Panel("[bold red]⛔ INVALID TICKET: Mathematical risk logic or Magnet target contradicts the trade direction. Execution halted.[/bold red]", border_style="red", box=box.ROUNDED, expand=False))
+                    diagnostic_text = (
+                        f"[bold red]⛔ INVALID TICKET LOGIC DETECTED[/bold red]\n\n"
+                        f"Verdict: {final_verdict}\n"
+                        f"Current Price: {current_price}\n"
+                        f"Threat Level (from Agent 1): {agent_1_threat_level} (Type: {type(agent_1_threat_level)})\n"
+                        f"Magnet Target (from Agent 2): {agent_2_magnet_target} (Type: {type(agent_2_magnet_target)})\n"
+                        f"Calculated Stop Loss: {stop_loss}\n"
+                        f"Calculated Take Profit: {take_profit}"
+                    )
+                    console.print(Panel(diagnostic_text, border_style="red", box=box.ROUNDED, expand=False))
+
+                    timestamp_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                    log_entry = (
+                        f"[{timestamp_str}] ERROR: INVALID TICKET LOGIC | "
+                        f"Verdict: {final_verdict} | "
+                        f"Price: {current_price} | "
+                        f"Threat: {agent_1_threat_level} | "
+                        f"Magnet: {agent_2_magnet_target} | "
+                        f"SL: {stop_loss} | "
+                        f"TP: {take_profit}\n"
+                    )
+                    log_path = "output_alpha/operator_errors.log"
+                    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                    with open(log_path, "a") as f:
+                        f.write(log_entry)
+
                     continue
 
                 risk_reward_ratio = (current_price - take_profit) / (stop_loss - current_price)
