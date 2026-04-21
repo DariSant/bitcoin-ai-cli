@@ -273,10 +273,9 @@ def log_execution(command_name: str, strategy: str, symbol: str, data_4h: dict, 
 
     return filepath
 
-def fetch_and_analyze(exchange, symbol: str, timeframe: str) -> dict:
+def fetch_ohlcv_data(exchange, symbol: str, timeframe: str) -> pd.DataFrame:
     """
-    Fetch OHLCV data for a given symbol and timeframe, calculate technical indicators
-    (EMAs, RSIs, and RSI Delta) using pandas-ta, and return the latest row's values.
+    Fetch OHLCV data for a given symbol and timeframe and return a Pandas DataFrame.
     """
     try:
         # Fetch the last 200 candles
@@ -293,7 +292,13 @@ def fetch_and_analyze(exchange, symbol: str, timeframe: str) -> dict:
 
     # Convert to Pandas DataFrame
     df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    return df
 
+def calculate_indicators(df: pd.DataFrame, timeframe: str) -> dict:
+    """
+    Calculate technical indicators (EMAs, RSIs, and RSI Delta) using pandas-ta,
+    and return the latest row's values.
+    """
     # Calculate EMAs
     df['EMA_34'] = ta.ema(df['close'], length=34)
     df['EMA_89'] = ta.ema(df['close'], length=89)
@@ -400,8 +405,10 @@ def _run_status(symbol: str = 'BTC/USDT'):
         exchange = ccxt.binance()
 
         # Fetch and analyze data for both timeframes
-        data_4h = fetch_and_analyze(exchange, symbol, '4h')
-        data_15m = fetch_and_analyze(exchange, symbol, '15m')
+        df_4h = fetch_ohlcv_data(exchange, symbol, '4h')
+        data_4h = calculate_indicators(df_4h, '4h')
+        df_15m = fetch_ohlcv_data(exchange, symbol, '15m')
+        data_15m = calculate_indicators(df_15m, '15m')
 
     except (RuntimeError, ValueError, Exception) as e:
         logging.error("Failed to calculate metrics", exc_info=True)
@@ -818,8 +825,10 @@ def _run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
         exchange = ccxt.binance()
 
         # Fetch and analyze data for both timeframes (silently)
-        data_4h = fetch_and_analyze(exchange, symbol, '4h')
-        data_15m = fetch_and_analyze(exchange, symbol, '15m')
+        df_4h = fetch_ohlcv_data(exchange, symbol, '4h')
+        data_4h = calculate_indicators(df_4h, '4h')
+        df_15m = fetch_ohlcv_data(exchange, symbol, '15m')
+        data_15m = calculate_indicators(df_15m, '15m')
 
     except (RuntimeError, ValueError, Exception) as e:
         logging.error("Failed to calculate metrics", exc_info=True)
