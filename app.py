@@ -10,6 +10,7 @@ import typing
 from rich.console import Console
 from datetime import datetime, timezone
 from rich.panel import Panel
+from rich.table import Table
 from rich import box
 import logging
 import pathlib
@@ -1233,6 +1234,55 @@ def ask(question: str):
     except Exception as e:
         # Catch any other unexpected errors
         typer.secho(f"An unexpected error occurred: {e}", fg=typer.colors.RED)
+
+
+@app.command(name="commands", help="Displays a matrix of all executable commands and their variables.")
+def commands_command():
+    """
+    Displays a matrix of all executable commands and their variables.
+    """
+    table = Table(box=box.ROUNDED)
+    table.add_column("Command", style="cyan")
+    table.add_column("Description", style="white")
+    table.add_column("Variables / Strategies", style="yellow")
+
+    table.add_row(
+        "status",
+        "Fetch MTF (4h, 15m) data for the given symbol and print the raw metrics.",
+        r"\[SYMBOL]"
+    )
+    table.add_row(
+        "analyze",
+        "Fetch MTF (4h, 15m) data and execute trading analysis via AI agents.",
+        r"\[SYMBOL] | --def (Defensive) | --greed (Greedy)"
+    )
+    table.add_row(
+        "operate",
+        "Execute trading operations based on recent analysis.",
+        r"\[SYMBOL] | --def (Defensive) | --greed (Greedy)"
+    )
+    table.add_row(
+        "mock",
+        "Feed a mock JSON payload directly to Agent 4 (The Operator) for stress testing.",
+        r"\[filename]"
+    )
+    table.add_row(
+        "auto",
+        "Execute the entire sequential pipeline: Status -> Analyze -> Operate.",
+        r"\[SYMBOL] | --def (Defensive) | --greed (Greedy)"
+    )
+    table.add_row(
+        "ask",
+        "Ask the AI model a question and print the response.",
+        r"\[question]"
+    )
+    table.add_row(
+        "commands",
+        "Displays a matrix of all executable commands and their variables.",
+        "None"
+    )
+
+    console.print(table)
 
 
 if __name__ == "__main__":
