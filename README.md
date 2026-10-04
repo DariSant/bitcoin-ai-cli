@@ -253,6 +253,9 @@ A mock file must contain: `verdict`, `account_balance_usdt`, `risk_per_trade_per
 | `main.py` | Leftover starter file (not used) |
 | `pyproject.toml` / `uv.lock` | Library list and exact pinned versions, managed by uv |
 | `AGENTS.md` | Instructions for AI coding assistants working on this repo |
+| `CHANGELOG.md` | **Record of every change and decision**, newest first. Read this to see what changed and why. |
+| `TODO.md` | Audit findings and the phased roadmap of work still to do |
+| `research/` | Study scripts and their dated reports. Run `uv run research/activity_gate_study.py` monthly to re-check the activity gate thresholds |
 | `BTC-CLI PROJECT (start_go-btc).md` | Original project status report |
 
 ---
