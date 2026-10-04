@@ -48,8 +48,18 @@ These answers (full text in section 4) are now built into the items below.
 | Gemini quota | **500 requests/day** for `gemini-3.5-flash-lite` (from AI Studio). Store it in `config.toml`, and check models and limits regularly. |
 | Run frequency | **Proposed:** every **30 minutes**, just after a candle closes. That is at most 192 calls/day, 38% of the quota. Every 15 minutes would be 384/day (77%), which leaves too little room for retries. |
 | Oracle region | **Recommended: Spain Central (Madrid), `eu-madrid-1`.** See the Phase 5 Binance item and the answer to question 7. |
-| Approvals | Granted for `uv add --dev pytest`, `uv add pydantic`, replacing `pandas-ta`, and splitting `app.py` later. |
+| Approvals | Granted for `uv add --dev pytest`, `uv add pydantic`, replacing `pandas-ta`, and splitting `app.py` later (the timing of the split changed on 2026-10-05, see below). |
 | Working-copy edits | Committed as `eed40d8` on branch `chore/model-update-readme-rewrite` and pushed (GitHub login fixed). The PR still needs to be opened and merged. |
+
+### Owner decisions (2026-10-05)
+
+| Topic | Decision |
+|---|---|
+| Agent instructions | The revised draft replaced the old `AGENTS.md`. |
+| Strategy freeze | Anything that changes which trades are taken or how they are scored needs approval and a `strategy_version` bump. Versions are analyzed separately. See `AGENTS.md` §2.4. |
+| Warm-up data | Data recorded before Phase 1 is complete is warm-up data, excluded from performance figures. Batch the Phase 1 fixes. |
+| Package split | **Moved earlier:** split `app.py` into a `btc_cli/` package *before* other code work, with no change in behaviour. See Phase 0. |
+| Trade resolution | **Precision, not worst case:** ambiguous minutes are resolved with tick data, never by assuming the stop. See the Phase 1 same-candle item. |
 
 ---
 
@@ -75,7 +85,35 @@ These answers (full text in section 4) are now built into the items below.
 
 ## 3. Phased roadmap
 
+### Phase 0 – Foundations (before Phase 1; owner decision 2026-10-05)
+
+- [ ] **[P1] Characterization tests for today's behaviour** — Confirmed (only 1 test exists) — Effort: M
+  - Where: new `tests/` folder; `pyproject.toml` (dev dependency)
+  - Problem: the package split must not change behaviour, but nothing checks that. `mock` only covers the order math.
+  - Fix:
+    - Run `uv add --dev pytest` (approved 2026-10-04).
+    - Use a fake exchange with saved candles and a fake Gemini client with canned replies, and write offline tests that capture today's output:
+      - the indicator values
+      - the exact prompt text sent to each agent
+      - the analysis JSON
+      - the ticket, ledger and history files
+    - Cover a long, a short and a `SIT ON HANDS` case. Write files only to `tmp_path`.
+    - Known bugs are captured as they are; they are fixed later on their own branches.
+  - Done when: `uv run pytest` passes offline on the current `app.py`, on its own `test/…` branch.
+
+- [ ] **[P1] Split `app.py` into the `btc_cli/` package** — Confirmed — Effort: L
+  - Where: `app.py` (1,384 lines); target layout in `AGENTS.md` §10
+  - Problem: one big file is getting hard to change safely and to test piece by piece.
+  - Fix: after the characterization tests, move the code into `btc_cli/` (`cli`, `config`, `data`, `indicators`, `agents`, `trade_operator`, `ledger`, `storage`, `logging_setup`). Keep `app.py` as a thin entry point so `uv run app.py <command>` still works, and move `test_app.py` into `tests/`. No behaviour change, so no `strategy_version` bump. (Replaces the old Phase 3 item "Split `app.py` into modules (later)".)
+  - Done when: the characterization tests pass unchanged, and `uv run app.py mock mock_long.json` / `mock_short.json` give the same output before and after.
+
 ### Phase 1 – Correctness (bugs that make paper results wrong or misleading)
+
+- [ ] **[P0] Version every record** — Confirmed (no record has version fields) — Effort: M
+  - Where: analysis, execution, ledger and history writes (`app.py:L314-L346`, `L741-L786`, `L280-L296`)
+  - Problem: the strategy freeze (`AGENTS.md` §2.4) needs every record tagged, so versions can be analyzed separately. Today records have no version, no per-agent model, and closed trades don't link to their analysis.
+  - Fix: add `schema_version`, `strategy_version`, UTC timestamp, exchange/market, and `model_used` per agent call to every record. Add the analysis file name to each trade. Readers treat records without these fields as legacy (`schema_version` 0, warm-up). This is a record format change, so present the plan first.
+  - Done when: a test shows every newly written record carries the fields, and old records still load.
 
 - [ ] **[P0] Trade resolution ignores the candle the trade was opened in** — Confirmed — Effort: M
   - Where: `app.py:L235-L239`
@@ -171,11 +209,17 @@ These answers (full text in section 4) are now built into the items below.
   - Fix: store `last_consumed_analysis` (the file name) in a small per-strategy state file, or write `trade_id` back into the analysis. Skip analyses that were already used.
   - Done when: running `operate` twice on one analysis creates at most one trade.
 
-- [ ] **[P1] Same-candle stop and target hit is always scored as a LOSS** — Confirmed — Effort: S (after the 1m change above)
+- [ ] **[P1] Same-candle stop and target hit is always scored as a LOSS** — Confirmed — Effort: M (after the 1m change above)
   - Where: `app.py:L244-L261`
-  - Problem: when a candle's high reaches the target and its low reaches the stop, the stop is checked first, so the result is LOSS (probe confirmed). Being pessimistic is a reasonable default, but it is hidden, and on 15m candles with 1-ATR stops it can happen often.
-  - Fix: keep the pessimistic rule, apply it to 1-minute candles, and record `resolution_note: "AMBIGUOUS_SAME_CANDLE"`. Count these in the report.
-  - Done when: ambiguous trades are flagged in history, and a test covers the case.
+  - Problem: when a candle's high reaches the target and its low reaches the stop, the stop is checked first, so the result is LOSS (probe confirmed). The rule is hidden, and on 15m candles with 1-ATR stops it can happen often.
+  - Decision (owner, 2026-10-05): **precision, not worst case.** The pessimistic rule is dropped.
+  - Fix:
+    - When a 1-minute candle touches both levels, fetch the exchange's individual trades for that minute (Binance aggregated trades through `ccxt` `fetch_trades`). The first trade at or beyond a level decides the result.
+    - Do the same for the entry minute, counting only trades after the entry time.
+    - If tick data cannot be fetched, retry on later runs. After 24 hours, close the trade as `UNRESOLVED`, alert, and exclude it from performance figures.
+    - Record `resolution_method` (`1m` / `tick` / `unresolved`) and the time and price of the first crossing trade. Count each method in the report.
+    - First check that tick data is available, and how far back it goes, for the chosen exchange (Binance USDT-M first, then the backup exchange).
+  - Done when: tests with fake tick data resolve both orders correctly (stop first → LOSS, target first → WIN), and the no-tick-data case ends as `UNRESOLVED`, never WIN or LOSS.
 
 - [ ] **[P1] EMA 144 has too little history to settle** — Confirmed (simulated) — Effort: S
   - Where: `app.py:L354` (`limit=200`), `L377`
@@ -480,11 +524,7 @@ These answers (full text in section 4) are now built into the items below.
   - Fix: write the 4 indicators in plain `pandas` (about 30 lines; `research/activity_gate_study.py` already has a hand-written ATR you can reuse), check them against `pandas-ta` output, then remove the library with `uv remove pandas-ta` (**approved 2026-10-04**).
   - Done when: the new indicators match `pandas-ta` to 1e-8 on a saved candle set, and `numba` is gone from `uv.lock`.
 
-- [ ] **[P2] Split `app.py` into modules (later)** — Confirmed — Effort: L
-  - Where: `app.py` (1,384 lines); `AGENTS.md` §6 says "keep everything in app.py for now"
-  - Problem: one big file is getting hard to change safely, but `AGENTS.md` asks to keep it as one file for now.
-  - Fix: only after Phases 1–2 (owner approved on 2026-10-04; also update `AGENTS.md` §6 when it happens), split into `config.py`, `data.py` (ccxt), `indicators.py`, `agents.py` (prompts, schemas, fallback), `operator.py` (`compute_order`), `ledger.py` (storage, resolution), `report.py` and `cli.py` (Typer). Add type hints and short docstrings as you move each part.
-  - Done when: `app.py` is a thin entry point and all tests still pass.
+- Split `app.py` into modules: **moved to Phase 0** (owner decision 2026-10-05).
 
 - [ ] **[P2] Line-ending warnings** — Confirmed — Effort: S
   - Where: `git diff` warns "LF will be replaced by CRLF" for `app.py`, `README.md`, `.gitignore`

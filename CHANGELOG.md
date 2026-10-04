@@ -15,9 +15,23 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 ## 2026-10-05
 
 ### Decisions (owner)
+- **New agent instructions.** The revised `NEW_AGENTS.md` replaces the old `AGENTS.md`, which is deleted. The file keeps the name `AGENTS.md`, so AI assistants keep finding it. The owner's Python level is now described as **intermediate** (was "very little coding experience"), so explanations skip the basics.
+- **Strategy freeze.** Anything that changes which trades are taken or how they are scored needs approval and a `strategy_version` bump, and each version is analyzed separately. Data recorded before Phase 1 is complete is warm-up data and is left out of results (`AGENTS.md` §2.4).
+- **The `app.py` split moves earlier.** It now happens before any other code work (new Phase 0 in `TODO.md`), with no change in behaviour, after tests that record today's behaviour. This replaces the 2026-10-04 plan to split only after Phases 1–2.
+- **Trade resolution must be precise, not worst case.** When one candle touches both the stop and the target, the tool must find out which came first from tick-level trade data, instead of assuming the stop. If the data can't be obtained, the trade is marked `UNRESOLVED` and left out of results, never guessed. (`TODO.md`, Phase 1 same-candle item.)
 - Commits in this project are signed by the **DariSant** GitHub account, not "Obraisan".
 
 ### Changed
+- **`AGENTS.md` rewritten** from the owner's draft (`NEW_AGENTS.md`), after reviewing the draft against the project's current state. Main changes from the draft:
+  - Fixed contradictions with the code and with earlier decisions (spot vs futures, the warm-up phase, append-only data vs how ledgers work, log rotation, `config.toml`, the order of the `app.py` split).
+  - Added safety rules: no development runs against real data or the Gemini quota, no spending or server changes, no self-approval, and limits on retries.
+  - Rewrote the no-look-ahead rule to use precise tick-level resolution (decision above).
+  - Added a memory and self-improvement section (`LESSONS.md`).
+- `TODO.md`:
+  - New "Owner decisions (2026-10-05)" table.
+  - New **Phase 0 – Foundations**: characterization tests, then the package split (moved from Phase 3).
+  - New Phase 1 item "Version every record", which the strategy freeze depends on.
+  - The same-candle item now follows the precision decision.
 - **Commit author for this project.**
   - This repository now has its own settings: `user.name = DariSant` and `user.email = 250336211+DariSant@users.noreply.github.com`.
   - That address is GitHub's private "noreply" email for the DariSant account. Commits link to the account without publishing a personal email.
