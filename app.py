@@ -31,6 +31,12 @@ console = Console()
 # Global variables
 BASE_DIR = "output_alpha"
 
+# AI models used by every agent.
+# PRIMARY_MODEL is tried first. If it fails, we instantly switch to FALLBACK_MODEL.
+# To change models later, edit only these two lines.
+PRIMARY_MODEL = "gemini-3.5-flash-lite"
+FALLBACK_MODEL = "gemini-2.5-flash"
+
 # Create the Typer app instance
 app = typer.Typer(help="Bitcoin AI CLI Tool")
 
@@ -67,8 +73,8 @@ def query_llm_with_fallback(client, prompt: str, schema_class, agent_name: str, 
     """
     Centralized function that handles all LLM requests with an instant failover.
     """
-    primary_model = "gemini-3.1-flash-lite-preview"
-    fallback_model = "gemini-2.5-flash"
+    primary_model = PRIMARY_MODEL
+    fallback_model = FALLBACK_MODEL
 
     config_dict = None
     if schema_class:
@@ -171,7 +177,9 @@ def render_execution_ticket(ticket: dict, strategy: str):
 
     operator_summary = "\n".join(operator_summary_lines)
 
-    panel_title = f"╭─ [ {strategy.upper()} Operator: Execution Ticket ] ─╮"
+    # The panel draws its own rounded border, so the title only needs plain text.
+    # (Adding our own corner characters here made two borders overlap.)
+    panel_title = f"[ {strategy.upper()} Operator: Execution Ticket ]"
     console.print(Panel(operator_summary, title=panel_title, border_style=panel_color, box=box.ROUNDED, expand=False))
 
 
@@ -878,6 +886,12 @@ def _run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool
     skip_def = _check_open_positions(symbol, "defensive") if run_def else True
     skip_greed = _check_open_positions(symbol, "greedy") if run_greed else True
 
+    # If every requested strategy already has an open trade, there is nothing to analyze.
+    # Stop here so we don't waste AI calls on Agents 1 and 2 whose reports would be thrown away.
+    if skip_def and skip_greed:
+        console.print("[yellow]All requested strategies have open positions. Skipping AI analysis to save API calls.[/yellow]")
+        return
+
     # Ensure the Gemini API key is loaded securely
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -950,14 +964,14 @@ Synthesize the provided JSON payload into the schema above. Prioritize mathemati
 
         global BASE_DIR
 
-        with console.status("[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
+        with console.status(f"[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: {PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
             agent1_text, active_model = query_llm_with_fallback(client, agent1_prompt, Agent1TechSchema, "agent_1_technical", symbol)
 
         if agent1_text is None:
             console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
             return
 
-        if active_model == "gemini-2.5-flash":
+        if active_model == FALLBACK_MODEL:
             BASE_DIR = "output_beta"
 
         try:
@@ -1009,14 +1023,14 @@ Synthesize the provided JSON payload into the schema above. Track the math, map 
 {vol_payload}
 """
 
-        with console.status("[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
+        with console.status(f"[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: {PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
             agent2_text, active_model = query_llm_with_fallback(client, agent2_prompt, Agent2VolumeSchema, "agent_2_volume", symbol)
 
         if agent2_text is None:
             console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
             return
 
-        if active_model == "gemini-2.5-flash":
+        if active_model == FALLBACK_MODEL:
             BASE_DIR = "output_beta"
 
         try:
@@ -1076,7 +1090,7 @@ Volume Agent Report:
 Price: ${data_15m.get('price', 0)}
 """
 
-            with console.status("[bold cyan]Agent 3 (Defensive Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
+            with console.status(f"[bold cyan]Agent 3 (Defensive Manager) Thinking... (Model: {PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
                 agent3_def_text, active_model = query_llm_with_fallback(client, agent3_defensive_prompt, Agent3ManagerSchema, "agent_3_defensive", symbol)
 
             if agent3_def_text is None:
@@ -1087,7 +1101,7 @@ Price: ${data_15m.get('price', 0)}
                 # But we might need to still process greedy. So we will skip the rest of defensive.
                 pass
             else:
-                if active_model == "gemini-2.5-flash":
+                if active_model == FALLBACK_MODEL:
                     BASE_DIR = "output_beta"
 
                 try:
@@ -1147,14 +1161,14 @@ Volume Agent Report:
 Price: ${data_15m.get('price', 0)}
 """
 
-            with console.status("[bold cyan]Agent 3 (Greedy Manager) Thinking... (Model: gemini-3.1-flash-lite-preview)[/bold cyan]", spinner="dots"):
+            with console.status(f"[bold cyan]Agent 3 (Greedy Manager) Thinking... (Model: {PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
                 agent3_greed_text, active_model = query_llm_with_fallback(client, agent3_greedy_prompt, Agent3ManagerSchema, "agent_3_greedy", symbol)
 
             if agent3_greed_text is None:
                 console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
                 pass
             else:
-                if active_model == "gemini-2.5-flash":
+                if active_model == FALLBACK_MODEL:
                     BASE_DIR = "output_beta"
 
                 try:

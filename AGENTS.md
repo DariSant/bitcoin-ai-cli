@@ -31,3 +31,9 @@
 ## 6. Architecture
 
 * Keep everything in app.py for now to minimize complexity.
+* Study and analysis scripts that are not part of the CLI live in `research/` (approved by the owner on 2026-10-04).
+
+## 7. Documentation
+
+* Record every change and every owner decision in `CHANGELOG.md` (newest first, plain language: what changed and why).
+* `TODO.md` holds the roadmap. Tick an item's box when it is done, and mention it in `CHANGELOG.md`.
