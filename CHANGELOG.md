@@ -32,6 +32,7 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
   - New **Phase 0 – Foundations**: characterization tests, then the package split (moved from Phase 3).
   - New Phase 1 item "Version every record", which the strategy freeze depends on.
   - The same-candle item now follows the precision decision.
+- **PRs opened:** #28 (model update, README, changelog and roadmap) was reopened with a full description. #29 (agent instructions) is stacked on it. Merge #28 first, then change #29's base to `main`.
 - **Commit author for this project.**
   - This repository now has its own settings: `user.name = DariSant` and `user.email = 250336211+DariSant@users.noreply.github.com`.
   - That address is GitHub's private "noreply" email for the DariSant account. Commits link to the account without publishing a personal email.
@@ -39,6 +40,12 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
   - To undo: `git config --local --unset user.name` and `git config --local --unset user.email`.
 - The earlier commit on branch `chore/model-update-readme-rewrite` (was `d4a4b59`, now `eed40d8`) was re-signed as DariSant and force-pushed. No PR had been opened yet, so nothing else was affected.
 - Committed the documentation from 2026-10-04 to the same branch: `CHANGELOG.md`, `TODO.md`, `research/`, and the `README.md` / `AGENTS.md` updates.
+
+### Maintenance
+- **GitHub CLI (`gh`) installed** with `winget install GitHub.cli` (version 2.102.0, owner approved on 2026-10-05), so AI assistants can open PRs.
+  - Signed in as **DariSant**; the login is stored in the Windows keyring.
+  - Git's own login settings were left unchanged.
+  - To undo: `gh auth logout`, then `winget uninstall GitHub.cli`.
 
 ---
 
