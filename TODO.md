@@ -79,7 +79,7 @@ These answers (full text in section 4) are now built into the items below.
 12. **Libraries table lists `requests`** (README L102): nothing in the code imports it.
 13. **"Where Your Data Is Saved"** (README L205-L222): this omits `output_alpha/status/system/<YYYY-MM>/…_SYSTEM_analysis.json`, which every `status` and `auto` run writes.
 14. **`operate` "reads the latest analysis"** (README L154): it also needs `GEMINI_API_KEY` and creates an AI client it never uses (`L535-L540`).
-15. **`BTC-CLI PROJECT (start_go-btc).md`** (listed in README L256): it says Agent 3 outputs "Risk Allocation %, Order Types" and that stops use "the AI's ATR multipliers". Neither is true any more.
+15. **`BTC-CLI PROJECT (start_go-btc).md`** (listed in README L256): it says Agent 3 outputs "Risk Allocation %, Order Types" and that stops use "the AI's ATR multipliers". Neither is true any more. **Resolved 2026-10-05:** the owner deleted the file, and its README row was removed.
 
 ---
 
@@ -506,6 +506,7 @@ These answers (full text in section 4) are now built into the items below.
 - [ ] **[P2] Clean up dead files and dependencies** — Confirmed — Effort: S
   - Where: `main.py` (unused starter), `pyproject.toml:L13` (`requests`, not imported), `pyproject.toml:L4` ("Add your description here"), `bitcoin_ai_cli.egg-info/`, `BTC-CLI PROJECT (start_go-btc).md` (outdated claims), `app.py:L485`/`L911` (`except (RuntimeError, ValueError, Exception)` is the same as `except Exception`), `L491` (hardcoded "BTC/USDT" header)
   - Fix: delete `main.py` and the egg-info folder. Either remove `requests` or keep it for Telegram alerts (Phase 5). Fix the description. Mark the old status report as historical or delete it. Print the real symbol in the `status` header.
+  - Status (2026-10-05): the old status report is **done** (deleted by the owner). Everything else in this item is still open.
   - Done when: `pyproject.toml` lists only libraries the code imports.
 
 - [ ] **[P2] `auto` downloads market data twice** — Confirmed — Effort: S

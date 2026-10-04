@@ -20,6 +20,10 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 - **The `app.py` split moves earlier.** It now happens before any other code work (new Phase 0 in `TODO.md`), with no change in behaviour, after tests that record today's behaviour. This replaces the 2026-10-04 plan to split only after Phases 1–2.
 - **Trade resolution must be precise, not worst case.** When one candle touches both the stop and the target, the tool must find out which came first from tick-level trade data, instead of assuming the stop. If the data can't be obtained, the trade is marked `UNRESOLVED` and left out of results, never guessed. (`TODO.md`, Phase 1 same-candle item.)
 - Commits in this project are signed by the **DariSant** GitHub account, not "Obraisan".
+- **The old status report is deleted.** `BTC-CLI PROJECT (start_go-btc).md` described the project as it was in March and made claims that are no longer true. The owner deleted it on purpose. It was never in Git, so there is no copy in the history.
+
+### Removed
+- `README.md`: the "Project Files" row for the old status report. `TODO.md`: README discrepancy #15 is marked resolved, and the cleanup item notes that part as done (the rest of that item stays open).
 
 ### Changed
 - **`AGENTS.md` rewritten** from the owner's draft (`NEW_AGENTS.md`), after reviewing the draft against the project's current state. Main changes from the draft:
