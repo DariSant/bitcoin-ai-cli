@@ -42,7 +42,7 @@ Sections 1–4 below are the original audit of 2026-10-04, kept for its evidence
 ### Plan
 
 **M1. Robustness groundwork (no trade changes, no version bump; the agent can do these without asking).** About 2 days.
-1. **Tick-data study** (`research/`, public data only). Check whether Binance USDT-M aggregated trades can be fetched for any past minute and how far back. Repeat for OKX and Bybit. §2.6 requires this before the resolution design (M2.2) can be planned.
+1. ~~**Tick-data study**~~ Done 2026-10-07: feasible at any age. Binance REST covers 48 h, the daily archive covers everything older, and the data is complete. Recommended backup: OKX. See the Phase 1 same-candle item and `research/results/tick_data_2026-10-07.md`.
 2. **Total AI failure exits non-zero**, including `ask` (Phase 2, S).
 3. **Gemini error handling:** timeout, retries for 429/5xx, no fallback on 400/401/403, both errors logged, and the backup used for the rest of the run once the primary fails (Phase 2, M).
 4. **Validate AI replies** with `pydantic` (approved): a bad reply skips only that strategy and is logged (Phase 2, M).
@@ -292,6 +292,11 @@ These answers (full text in section 4) are now built into the items below.
     - If tick data cannot be fetched, retry on later runs. After 24 hours, close the trade as `UNRESOLVED`, alert, and exclude it from performance figures.
     - Record `resolution_method` (`1m` / `tick` / `unresolved`) and the time and price of the first crossing trade. Count each method in the report.
     - First check that tick data is available, and how far back it goes, for the chosen exchange (Binance USDT-M first, then the backup exchange).
+  - Tick data checked (2026-10-07, `research/tick_data_study.py`, report `research/results/tick_data_2026-10-07.md`): **feasible at any age, with complete data.**
+    - Binance USDT-M REST `aggTrades` covers the last 48 h; the daily archive `data.binance.vision` covers older days (online by about 07:10 UTC the next day), so there is never a gap.
+    - A day's trades add up to the candle volume exactly.
+    - Binance's 1m candles count a boundary trade in the next minute about 7 % of the time, and in 4 of 1,440 minutes that moved the high or low by one tick. So trade timestamps decide, a tick check covers the neighbouring minutes' edges, and a level within one tick of a candle's range counts as touched. Details are in the report's "Interpretation".
+    - Backup exchanges: OKX REST goes back about 3 months but needs the raw endpoint, paged by trade id (ccxt's `fetch_trades` ignores `since`). Bybit has archive files only, and its candles open at the previous close. Recommended backup: **OKX**.
   - Done when: tests with fake tick data resolve both orders correctly (stop first → LOSS, target first → WIN), and the no-tick-data case ends as `UNRESOLVED`, never WIN or LOSS.
 
 - [ ] **[P1] EMA 144 has too little history to settle** — Confirmed (simulated) — Effort: S
