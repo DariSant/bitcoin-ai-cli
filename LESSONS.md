@@ -3,8 +3,16 @@
 Shared memory for every agent working on this repo (`AGENTS.md` §12). Newest first. Keep each lesson short: date, what happened, the rule, and the source.
 
 ## 2026-10-07: importing `app` has side effects
-- What: `app.py` calls `load_dotenv()` (reads the real `.env` and its key) and `logging.basicConfig(filename="error.log")` (creates `error.log` in the current folder) as soon as it is imported.
-- Rule: tests must import `app` only after `tests/conftest.py` has run. It disables `load_dotenv` and puts a `NullHandler` on the root logger first. Don't add another conftest or test entry point that imports `app` earlier.
+- What: `app.py` calls `load_dotenv()` (reads the real `.env` and its key) and `configure_logging()` (creates `error.log` in the current folder) as soon as it is imported. The `btc_cli` modules themselves have no import side effects.
+- Rule: tests must import `app` only after `tests/conftest.py` has run. It disables `load_dotenv` and puts a `NullHandler` on the root logger first. Don't add another conftest or test entry point that imports `app` earlier. Running `uv run app.py mock <missing file>` by hand writes to the real `error.log`, so clear what you added afterwards.
+
+## 2026-10-07: `config.BASE_DIR` must be read at call time
+- What: the fallback path rebinds `config.BASE_DIR` to `output_beta` for the rest of the process (known P0 bug), and `auto` depends on that today.
+- Rule: until that bug is fixed, write `config.BASE_DIR`, never `from btc_cli.config import BASE_DIR`. The second form silently changes where `auto` writes, and `test_auto_after_a_fallback_operates_on_output_beta` catches it.
+
+## 2026-10-07: shell pitfalls seen on this Windows setup
+- What: in the Bash tool, a Python `"\\n"` (escaped backslash-n) inside a heredoc reached Python as a real newline, which broke generated code and a test. `git add a b missing` aborts the whole add, so changes staged earlier (e.g. a `git mv`) end up in the next commit. `git worktree remove` fails with "Filename too long" once a worktree has its own `.venv`.
+- Rule: write scripts that contain backslash escapes with the file-writing tool, not a heredoc. Check `git status` before every commit. For a scratch worktree, set `UV_PROJECT_ENVIRONMENT` to the repo's `.venv` so no second `.venv` is created.
 - Source: branch `test/characterization-tests`.
 
 ## 2026-10-07: time-zone bugs can be tested on Windows

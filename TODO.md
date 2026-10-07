@@ -2,6 +2,7 @@
 
 Audit date: 2026-10-04. Audited the **current working tree** (including the uncommitted edits to `app.py` and `README.md`).
 Line numbers refer to `app.py` unless another file is named.
+**Since 2026-10-07 the code lives in `btc_cli/`.** `app.py:Lnnn` references below point to the pre-split file: view it with `git show 98ee1d7:app.py`. The function names are unchanged or close: `_check_open_positions` → `pipeline.check_open_positions` + `ledger.find_exit`, the operator math → `trade_operator.compute_order`, and the prompts → `agents.build_*_prompt`.
 
 **How findings are labelled**
 - **Confirmed** means I saw it in the code, reproduced it with a script, or saw it in the project's own output files.
@@ -102,11 +103,12 @@ These answers (full text in section 4) are now built into the items below.
   - Done when: `uv run pytest` passes offline on the current `app.py`, on its own `test/…` branch.
   - Status (2026-10-07): done on branch `test/characterization-tests`: 43 offline tests, all passing. The tests drive the real CLI (`CliRunner`) rather than internal functions, so they can stay unchanged through the split. `test_app.py` already moved to `tests/`.
 
-- [ ] **[P1] Split `app.py` into the `btc_cli/` package** — Confirmed — Effort: L
+- [x] **[P1] Split `app.py` into the `btc_cli/` package** — Confirmed — Effort: L
   - Where: `app.py` (1,384 lines); target layout in `AGENTS.md` §10
   - Problem: one big file is getting hard to change safely and to test piece by piece.
   - Fix: after the characterization tests, move the code into `btc_cli/` (`cli`, `config`, `data`, `indicators`, `agents`, `trade_operator`, `ledger`, `storage`, `logging_setup`). Keep `app.py` as a thin entry point so `uv run app.py <command>` still works, (`test_app.py` is already in `tests/`). No behaviour change, so no `strategy_version` bump. (Replaces the old Phase 3 item "Split `app.py` into modules (later)".)
   - Done when: the characterization tests pass unchanged, and `uv run app.py mock mock_long.json` / `mock_short.json` give the same output before and after.
+  - Status (2026-10-07): done on branch `refactor/btc-cli-package`. Every characterization test and snapshot passed unchanged; only `conftest.py` changed (it reads the model names from `btc_cli.config`). Both `mock` commands and every `--help` and `commands` output are byte-identical before and after. Two modules were added to the layout with owner approval: `pipeline.py` (the command flows) and `console.py` (the shared console and panels). There are also new unit tests for `trade_operator` and `ledger`, plus a test that checks module boundaries.
   - Note: the fakes are wired in by `tests/conftest.py`, which patches `datetime`, `console` and `BASE_DIR` by name in `app` and any `btc_cli.*` module. If the split renames or restructures these, adjust `conftest.py` only. The test files and snapshots must not change.
 
 ### Phase 1 – Correctness (bugs that make paper results wrong or misleading)
@@ -379,6 +381,7 @@ These answers (full text in section 4) are now built into the items below.
   - Where: `app.py:L970-L972`, `L1029-L1031`, `L1096-L1102`, `L1167-L1169`
   - Problem: "Both models unreachable" prints a message and `return`s, so the process exit code is 0. A scheduler or monitor will think the run succeeded.
   - Fix: `raise typer.Exit(code=2)` (or another non-zero code) after printing.
+  - Also (found 2026-10-07): `ask` exits 0 for the same failure, because its broad `except Exception` catches its own `typer.Exit` (Click's `Exit` is a `RuntimeError`) and prints "An unexpected error occurred: ". Pinned by `test_ask_with_both_models_down_exits_0`.
   - Done when: a test with both models failing gets a non-zero exit code.
 
 - [ ] **[P1] AI responses are not validated** — Confirmed — Effort: M
@@ -516,7 +519,8 @@ These answers (full text in section 4) are now built into the items below.
 - [ ] **[P2] Clean up dead files and dependencies** — Confirmed — Effort: S
   - Where: `main.py` (unused starter), `pyproject.toml:L13` (`requests`, not imported), `pyproject.toml:L4` ("Add your description here"), `bitcoin_ai_cli.egg-info/`, `BTC-CLI PROJECT (start_go-btc).md` (outdated claims), `app.py:L485`/`L911` (`except (RuntimeError, ValueError, Exception)` is the same as `except Exception`), `L491` (hardcoded "BTC/USDT" header)
   - Fix: delete `main.py` and the egg-info folder. Either remove `requests` or keep it for Telegram alerts (Phase 5). Fix the description. Mark the old status report as historical or delete it. Print the real symbol in the `status` header.
-  - Status (2026-10-05): the old status report is **done** (deleted by the owner). Everything else in this item is still open.
+  - Status (2026-10-05): the old status report is **done** (deleted by the owner).
+  - Status (2026-10-07): `main.py` and `bitcoin_ai_cli.egg-info/` deleted (owner approved), `*.egg-info/` ignored, and the description fixed. Still open: the `requests` decision (remove it, or keep it for Phase 5 alerts), the redundant `except (RuntimeError, ValueError, Exception)` (now in `pipeline.py`), and the hardcoded "BTC/USDT" `status` header. The last one changes output, so it goes with a snapshot update.
   - Done when: `pyproject.toml` lists only libraries the code imports.
 
 - [ ] **[P2] `auto` downloads market data twice** — Confirmed — Effort: S
