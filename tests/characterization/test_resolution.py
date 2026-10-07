@@ -189,12 +189,16 @@ def test_ledger_that_is_not_open_is_ignored(ledger, run_cli, exchange, tmp_path)
     assert exchange.calls == []
 
 
-def test_exchange_error_while_checking_stops_with_exit_1(run_cli, exchange, tmp_path):
+def test_exchange_outage_while_checking_keeps_the_trade_open_and_exits_1(run_cli, exchange, tmp_path):
+    """Changed 2026-10-07: retried 3 times, then the trade stays open for the next run (it used to print the raw error and stop the run)."""
     ledger_file = write_ledger(tmp_path, "defensive", LONG)
+    before = ledger_file.read_bytes()
     exchange.error = ccxt.NetworkError("simulated outage")
 
     out = run_cli("operate", "--def")
 
     assert out.exit_code == 1
-    assert "Error fetching data to verify open positions" in out.output
-    assert ledger_file.exists()
+    assert "Could not fetch market data to check the open DEFENSIVE trade (NetworkError)" in out.output
+    assert "It stays open and" in out.output
+    assert ledger_file.read_bytes() == before
+    assert len(exchange.calls) == 3 and exchange.sleeps == [2.0, 4.0]

@@ -29,8 +29,13 @@ class Settings:
     market_type: str
     analysis_candles: int
     resolution_candles: int
+    exchange_timeout_seconds: int
+    exchange_max_attempts: int
     primary_model: str
     fallback_model: str
+    gemini_timeout_seconds: int
+    gemini_max_attempts: int
+    gemini_max_retry_wait_seconds: int
     swing_lookback: int
     volume_profile_bins: int
     value_area_share: float
@@ -79,8 +84,13 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
         market_type=_value(raw, "market", "market_type", str),
         analysis_candles=_in_range(raw, "market", "analysis_candles", int, 0),
         resolution_candles=_in_range(raw, "market", "resolution_candles", int, 0),
+        exchange_timeout_seconds=_in_range(raw, "exchange_requests", "timeout_seconds", int, 0),
+        exchange_max_attempts=_in_range(raw, "exchange_requests", "max_attempts", int, 1, 3, low_inclusive=True),
         primary_model=_value(raw, "gemini", "primary_model", str),
         fallback_model=_value(raw, "gemini", "fallback_model", str),
+        gemini_timeout_seconds=_in_range(raw, "gemini_requests", "timeout_seconds", int, 0),
+        gemini_max_attempts=_in_range(raw, "gemini_requests", "max_attempts", int, 1, 3, low_inclusive=True),
+        gemini_max_retry_wait_seconds=_in_range(raw, "gemini_requests", "max_retry_wait_seconds", int, 0, low_inclusive=True),
         swing_lookback=_in_range(raw, "indicators", "swing_lookback", int, 0),
         volume_profile_bins=_in_range(raw, "indicators", "volume_profile_bins", int, 0),
         value_area_share=_in_range(raw, "indicators", "value_area_share", float, 0, 1),
@@ -141,9 +151,18 @@ MARKET_TYPE = _settings.market_type
 ANALYSIS_CANDLES = _settings.analysis_candles
 RESOLUTION_CANDLES = _settings.resolution_candles
 
+# [exchange_requests]
+EXCHANGE_TIMEOUT_SECONDS = _settings.exchange_timeout_seconds
+EXCHANGE_MAX_ATTEMPTS = _settings.exchange_max_attempts
+
 # [gemini]
 PRIMARY_MODEL = _settings.primary_model
 FALLBACK_MODEL = _settings.fallback_model
+
+# [gemini_requests]
+GEMINI_TIMEOUT_SECONDS = _settings.gemini_timeout_seconds
+GEMINI_MAX_ATTEMPTS = _settings.gemini_max_attempts
+GEMINI_MAX_RETRY_WAIT_SECONDS = _settings.gemini_max_retry_wait_seconds
 
 # [indicators]
 SWING_LOOKBACK = _settings.swing_lookback
