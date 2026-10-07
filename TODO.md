@@ -46,7 +46,7 @@ Sections 1–4 below are the original audit of 2026-10-04, kept for its evidence
 2. ~~**Total AI failure exits non-zero**~~ Done 2026-10-07 (`fix/ai-failure-exit-code`).
 3. ~~**Gemini error handling**~~ Done 2026-10-07 (`fix/gemini-error-handling`).
 4. ~~**Validate AI replies**~~ Done 2026-10-07 (`fix/validate-ai-replies`).
-5. **Binance retries** and one shared exchange object with a timeout (Phase 2, S). M2.1 extends this helper.
+5. ~~**Binance retries**~~ Done 2026-10-07 (`fix/binance-retries`). M2.1 reuses `data.with_retries` for paginated fetches.
 6. **`mock` uses `compute_order`**, so it tests the real math (Phase 1, S). `mock` affects no trade, so no version bump is needed, but its snapshot changes on purpose.
 7. **`operate` picks the analysis by its own UTC timestamp** from the current month only, not by file modification time across every month (Phase 2 P2, S).
 8. ~~**`.gitattributes`**~~ Done 2026-10-07 (`chore/gitattributes`).
@@ -545,7 +545,7 @@ These answers (full text in section 4) are now built into the items below.
   - Fix: save the model name and generation settings into every analysis file. Check Google's current advice for the 3.x models before lowering `temperature`; for Gemini 3 models Google has recommended keeping the default. If verdicts flip often, consider asking 3 times and taking the majority verdict (this costs 3× the calls).
   - Done when: the consistency check is recorded and the setting choice is written in the code comments.
 
-- [ ] **[P1] Binance calls have no retry, and one failed check stops the whole run** — Confirmed — Effort: S
+- [x] **[P1] Binance calls have no retry, and one failed check stops the whole run** — Confirmed — Effort: S
   - Where: `app.py:L217-L222`, `L348-L360`, `L477`, `L903`
   - Problem:
     - One timeout in `_check_open_positions` calls `typer.Exit(1)` and prints the raw exception text.
@@ -553,6 +553,11 @@ These answers (full text in section 4) are now built into the items below.
     - There is no retry on `ccxt.NetworkError`, `RequestTimeout` or `DDoSProtection` (Binance's rate-limit response).
   - Fix: create one shared exchange object with `{"timeout": 15000, "enableRateLimit": True}`. Add a `fetch_with_retry` helper (3 tries, waiting 2s, 4s, 8s) for those errors. Print a short friendly message and log the full details.
   - Done when: a fake exchange that fails twice and then succeeds completes the run.
+  - Status (2026-10-07): done on branch `fix/binance-retries`.
+    - One exchange object per process, with a 15 s timeout and ccxt rate limiting, so the market list loads once.
+    - `data.with_retries` retries `ccxt.NetworkError` (timeouts, rate limits, maintenance) after 2 s and 4 s, at most 3 attempts. `ExchangeError` (bad symbol or request) is never retried.
+    - If the candles to check an open trade still can't be fetched, the trade stays open (never guessed), only that strategy is skipped, a short message is shown with the details in `error.log`, and the command exits 1.
+    - New `[exchange_requests]` settings, not frozen.
 
 - [ ] **[P1] Test suite covers almost nothing** — Confirmed — Effort: L
   - Where: `test_app.py:L1-L9` (only `format_pipe_string`); `pyproject.toml` has no dev dependencies

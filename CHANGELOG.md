@@ -15,6 +15,12 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 ## 2026-10-07
 
 ### Fixed
+- **Binance calls are retried, and an outage no longer stops the whole run** (branch `fix/binance-retries`; `TODO.md` Phase 2 item ticked, M1.5). Before, every fetch created a new exchange object with no timeout, which also downloaded Binance's market list again each time. One network error while checking an open trade printed the raw exception and stopped the run.
+  - **Shared client:** one exchange object per process, with a 15 s timeout and ccxt's rate limiting.
+  - **Retries:** temporary network errors (`ccxt.NetworkError`: timeouts, rate limits, maintenance) are retried after 2 s and 4 s, at most 3 attempts. Permanent errors (`ExchangeError`: bad symbol or request) are not retried.
+  - **Open-trade check:** if its candles still can't be fetched, the trade **stays open** and is checked again next run (§2.6: never guess). Only that strategy is skipped, the message is short (details in `error.log`), and the command exits 1.
+  - **Settings:** new `[exchange_requests]` section (`timeout_seconds`, `max_attempts` 1–3), not frozen.
+  - No trade decision changes, so no `strategy_version` bump. Snapshots unchanged. 13 new tests (181 in total), and one characterization test updated for the new outage behaviour.
 - **AI replies are now validated** (branch `fix/validate-ai-replies`; `TODO.md` Phase 2 item ticked, M1.4). Before, only "is it JSON?" was checked. A missing field silently became `NEUTRAL` or `SIT ON HANDS`, and a JSON error in one strategy's Agent 3 stopped the whole run, so the other strategy got no analysis that cycle and the A/B arms drifted apart.
   - `agents.parse_reply` checks every reply against the same `TypedDict` schema Gemini is given: required fields, text types, allowed values such as `final_verdict` and `bias`. What Gemini receives is unchanged.
   - **Invalid Agent 3 reply:** only that strategy is skipped and the other still runs.
