@@ -212,7 +212,17 @@ Each strategy keeps its own separate ledger and trade history.
 
 ## Where Your Data Is Saved
 
-These folders are created automatically the first time you run a command:
+These folders are created automatically the first time you run a command. They live in the **data folder**: the project folder by default (`[paths] data_dir` in `config.toml`), whichever folder you start the command from.
+
+For a test run that must not touch the real data, point the data folder somewhere else for that session only:
+
+```powershell
+$env:BTC_CLI_DATA_DIR = "$env:TEMP\btc-cli-dev"; uv run app.py status; Remove-Item Env:BTC_CLI_DATA_DIR
+```
+```bash
+BTC_CLI_DATA_DIR=/tmp/btc-cli-dev uv run app.py status
+```
+
 
 ```
 output_alpha/                                 ← main results (primary AI model)
