@@ -5,12 +5,19 @@ JSON records are written atomically, and a recorded file that can't be read is n
 overwritten (AGENTS.md §2.3). Known remaining issue (TODO.md): file names use naive local time.
 """
 
+import contextlib
 import json
 import os
 import pathlib
+from collections.abc import Iterator
 from datetime import datetime, timezone
 
 from btc_cli import config
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 # What readers assume for records written before versioning (AGENTS.md §6: legacy, warm-up).
 LEGACY_SCHEMA_VERSION = 0
@@ -302,3 +309,73 @@ def append_system_health(health_payload: dict) -> None:
     log_path = log_dir / "system_health.log"
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(health_payload) + "\n")
+
+
+# --- Run lock (AGENTS.md §5: a scheduled run and a manual one must never overlap) ---
+
+# Windows locks byte ranges, and a locked range can't be read by other processes. The lock sits far
+# past the short "who holds it" text at the start of the file, so a blocked run can still read that text.
+_WINDOWS_LOCK_OFFSET = 1 << 20
+
+
+class RunLockedError(Exception):
+    """Another process holds the run lock for this data folder."""
+
+    def __init__(self, path: pathlib.Path, holder: str) -> None:
+        super().__init__(f"{path} is held by {holder}")
+        self.path = path
+        self.holder = holder
+
+
+def _try_lock(fd: int) -> None:
+    """Take the OS lock without waiting; raise OSError if another process holds it."""
+    if os.name == "nt":
+        os.lseek(fd, _WINDOWS_LOCK_OFFSET, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock(fd: int) -> None:
+    if os.name == "nt":
+        os.lseek(fd, _WINDOWS_LOCK_OFFSET, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+def _lock_holder(path: pathlib.Path) -> str:
+    """The "who holds it" text a running process wrote, for the message (best effort)."""
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        text = ""
+    return text or "another process"
+
+
+@contextlib.contextmanager
+def run_lock(command: str) -> Iterator[None]:
+    """Hold the data folder's run lock while the block runs; raise RunLockedError if another run holds it.
+
+    This is an OS lock on an open file, not "the file exists": the OS releases it when the process
+    ends, even after a crash or a kill, so a stale lock can never block later runs. The file itself
+    stays, holding the last holder's details, and is never deleted.
+    """
+    path = pathlib.Path(config.LOCK_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        try:
+            _try_lock(fd)
+        except OSError as e:
+            raise RunLockedError(path, _lock_holder(path)) from e
+        try:
+            holder = f"pid {os.getpid()}, command '{command}', started {utc_iso(datetime.now(timezone.utc))}"
+            os.ftruncate(fd, 0)
+            os.lseek(fd, 0, os.SEEK_SET)
+            os.write(fd, (holder + "\n").encode("utf-8"))
+            yield
+        finally:
+            _unlock(fd)
+    finally:
+        os.close(fd)

@@ -129,6 +129,8 @@ BASE_DIR = DATA_DIR / "output_alpha"
 BETA_DIR = DATA_DIR / "output_beta"
 LOGS_DIR = DATA_DIR / "logs"
 ERROR_LOG = DATA_DIR / "error.log"
+# One run at a time per data folder (see storage.run_lock). Never delete it to "unstick" a run.
+LOCK_FILE = DATA_DIR / "run.lock"
 # Inputs for the `mock` command: part of the project, not data.
 MOCK_DIR = PROJECT_ROOT / "mock_json"
 
