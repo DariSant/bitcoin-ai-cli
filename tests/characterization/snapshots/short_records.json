@@ -4,7 +4,23 @@
       "metadata": {
         "timestamp": "<LOCAL_ISO T+0s>",
         "symbol": "BTC/USDT",
-        "command_run": "analyze"
+        "command_run": "analyze",
+        "schema_version": 1,
+        "strategy_version": "0.1",
+        "exchange": "binance",
+        "market_type": "spot",
+        "timestamp_utc": "2026-10-01T12:00:00Z",
+        "strategy": "defensive",
+        "run_id": "20261001T120000Z-DEF-BTCUSDT",
+        "models_used": {
+          "agent_1_technical": "gemini-3.5-flash-lite",
+          "agent_2_volume": "gemini-3.5-flash-lite",
+          "agent_3_defensive": "gemini-3.5-flash-lite"
+        },
+        "models_configured": {
+          "primary": "gemini-3.5-flash-lite",
+          "fallback": "gemini-2.5-flash"
+        }
       },
       "raw_market_data": {
         "4h": {
@@ -73,7 +89,23 @@
       "metadata": {
         "timestamp": "<LOCAL_ISO T+0s>",
         "symbol": "BTC/USDT",
-        "command_run": "analyze"
+        "command_run": "analyze",
+        "schema_version": 1,
+        "strategy_version": "0.1",
+        "exchange": "binance",
+        "market_type": "spot",
+        "timestamp_utc": "2026-10-01T12:00:00Z",
+        "strategy": "greedy",
+        "run_id": "20261001T120000Z-GREED-BTCUSDT",
+        "models_used": {
+          "agent_1_technical": "gemini-3.5-flash-lite",
+          "agent_2_volume": "gemini-3.5-flash-lite",
+          "agent_3_greedy": "gemini-3.5-flash-lite"
+        },
+        "models_configured": {
+          "primary": "gemini-3.5-flash-lite",
+          "fallback": "gemini-2.5-flash"
+        }
       },
       "raw_market_data": {
         "4h": {
@@ -145,7 +177,20 @@
         "timestamp": "<LOCAL_ISO T+60s>",
         "symbol": "BTC/USDT",
         "command_run": "operate",
-        "strategy": "defensive"
+        "strategy": "defensive",
+        "schema_version": 1,
+        "strategy_version": "0.1",
+        "exchange": "binance",
+        "market_type": "spot",
+        "timestamp_utc": "2026-10-01T12:01:00Z",
+        "trade_id": "20261001T120100Z-DEF-BTCUSDT",
+        "analysis_file": "analyze/defensive/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_DEF_analysis.json",
+        "analysis_run_id": "20261001T120000Z-DEF-BTCUSDT",
+        "models_used": {
+          "agent_1_technical": "gemini-3.5-flash-lite",
+          "agent_2_volume": "gemini-3.5-flash-lite",
+          "agent_3_defensive": "gemini-3.5-flash-lite"
+        }
       },
       "operator_payload": {
         "verdict": "GO SHORT",
@@ -170,7 +215,20 @@
         "timestamp": "<LOCAL_ISO T+60s>",
         "symbol": "BTC/USDT",
         "command_run": "operate",
-        "strategy": "greedy"
+        "strategy": "greedy",
+        "schema_version": 1,
+        "strategy_version": "0.1",
+        "exchange": "binance",
+        "market_type": "spot",
+        "timestamp_utc": "2026-10-01T12:01:00Z",
+        "trade_id": "20261001T120100Z-GREED-BTCUSDT",
+        "analysis_file": "analyze/greedy/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_GREED_analysis.json",
+        "analysis_run_id": "20261001T120000Z-GREED-BTCUSDT",
+        "models_used": {
+          "agent_1_technical": "gemini-3.5-flash-lite",
+          "agent_2_volume": "gemini-3.5-flash-lite",
+          "agent_3_greedy": "gemini-3.5-flash-lite"
+        }
       },
       "operator_payload": {
         "verdict": "GO SHORT",
@@ -202,7 +260,21 @@
       "stop_loss": 67352.85,
       "take_profit": 66500.0,
       "risk_reward_ratio": 1.27,
-      "position_size_usd": 17802.28
+      "position_size_usd": 17802.28,
+      "schema_version": 1,
+      "strategy_version": "0.1",
+      "exchange": "binance",
+      "market_type": "spot",
+      "strategy": "defensive",
+      "trade_id": "20261001T120100Z-DEF-BTCUSDT",
+      "entry_time_utc": "2026-10-01T12:01:00Z",
+      "analysis_file": "analyze/defensive/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_DEF_analysis.json",
+      "analysis_run_id": "20261001T120000Z-DEF-BTCUSDT",
+      "models_used": {
+        "agent_1_technical": "gemini-3.5-flash-lite",
+        "agent_2_volume": "gemini-3.5-flash-lite",
+        "agent_3_defensive": "gemini-3.5-flash-lite"
+      }
     },
     "greedy": {
       "symbol": "BTC/USDT",
@@ -214,7 +286,21 @@
       "stop_loss": 67352.85,
       "take_profit": 66500.0,
       "risk_reward_ratio": 1.27,
-      "position_size_usd": 17802.28
+      "position_size_usd": 17802.28,
+      "schema_version": 1,
+      "strategy_version": "0.1",
+      "exchange": "binance",
+      "market_type": "spot",
+      "strategy": "greedy",
+      "trade_id": "20261001T120100Z-GREED-BTCUSDT",
+      "entry_time_utc": "2026-10-01T12:01:00Z",
+      "analysis_file": "analyze/greedy/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_GREED_analysis.json",
+      "analysis_run_id": "20261001T120000Z-GREED-BTCUSDT",
+      "models_used": {
+        "agent_1_technical": "gemini-3.5-flash-lite",
+        "agent_2_volume": "gemini-3.5-flash-lite",
+        "agent_3_greedy": "gemini-3.5-flash-lite"
+      }
     }
   },
   "history": {
@@ -230,9 +316,25 @@
         "take_profit": 66500.0,
         "risk_reward_ratio": 1.27,
         "position_size_usd": 17802.28,
+        "schema_version": 1,
+        "strategy_version": "0.1",
+        "exchange": "binance",
+        "market_type": "spot",
+        "strategy": "defensive",
+        "trade_id": "20261001T120100Z-DEF-BTCUSDT",
+        "entry_time_utc": "2026-10-01T12:01:00Z",
+        "analysis_file": "analyze/defensive/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_DEF_analysis.json",
+        "analysis_run_id": "20261001T120000Z-DEF-BTCUSDT",
+        "models_used": {
+          "agent_1_technical": "gemini-3.5-flash-lite",
+          "agent_2_volume": "gemini-3.5-flash-lite",
+          "agent_3_defensive": "gemini-3.5-flash-lite"
+        },
         "result": "LOSS",
         "pnl_usd": -100.0,
-        "close_timestamp": 1790857800.0
+        "close_timestamp": 1790857800.0,
+        "resolved_at_utc": "2026-10-01T12:17:00Z",
+        "resolved_by_strategy_version": "0.1"
       }
     ],
     "greedy": [
@@ -247,9 +349,25 @@
         "take_profit": 66500.0,
         "risk_reward_ratio": 1.27,
         "position_size_usd": 17802.28,
+        "schema_version": 1,
+        "strategy_version": "0.1",
+        "exchange": "binance",
+        "market_type": "spot",
+        "strategy": "greedy",
+        "trade_id": "20261001T120100Z-GREED-BTCUSDT",
+        "entry_time_utc": "2026-10-01T12:01:00Z",
+        "analysis_file": "analyze/greedy/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_GREED_analysis.json",
+        "analysis_run_id": "20261001T120000Z-GREED-BTCUSDT",
+        "models_used": {
+          "agent_1_technical": "gemini-3.5-flash-lite",
+          "agent_2_volume": "gemini-3.5-flash-lite",
+          "agent_3_greedy": "gemini-3.5-flash-lite"
+        },
         "result": "LOSS",
         "pnl_usd": -100.0,
-        "close_timestamp": 1790857800.0
+        "close_timestamp": 1790857800.0,
+        "resolved_at_utc": "2026-10-01T12:17:00Z",
+        "resolved_by_strategy_version": "0.1"
       }
     ]
   },

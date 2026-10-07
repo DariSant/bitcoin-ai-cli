@@ -60,7 +60,13 @@ def check_open_positions(symbol: str, strategy: str) -> bool:
 
     if exit_ is not None:
         pnl_usd = ledger.calculate_pnl(trade, exit_.result)
-        storage.move_to_history(ledger_path, history_path, ledger.close_trade(trade, exit_, pnl_usd))
+        # The trade keeps the strategy_version it was opened with; this records the rules that resolved it.
+        closed_trade = {
+            **ledger.close_trade(trade, exit_, pnl_usd),
+            "resolved_at_utc": storage.utc_iso(datetime.now(timezone.utc)),
+            "resolved_by_strategy_version": config.STRATEGY_VERSION,
+        }
+        storage.move_to_history(ledger_path, history_path, closed_trade)
 
         console.print(Panel(
             f"[bold]Trade Closed ({strategy.upper()}):[/bold] {exit_.result}\n[bold]PnL:[/bold] ${pnl_usd:,.2f}",
@@ -246,8 +252,10 @@ def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
             render_execution_ticket(ticket_data, strategy)
 
             # --- Save Execution Footprint ---
-            now = datetime.now()
-            filepath = storage.write_execution_footprint(now, strategy, symbol, operator_payload, operator_report)
+            now_utc = datetime.now(timezone.utc)
+            now = storage.local_now(now_utc)
+            source = storage.analysis_link(most_recent_file, analysis)
+            filepath = storage.write_execution_footprint(now, now_utc, strategy, symbol, operator_payload, operator_report, source)
 
             now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
             console.print(f"[dim]💾 [{now_utc_str}] Execution Footprint saved to: {filepath}[/dim]")
@@ -265,7 +273,12 @@ def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
                 "stop_loss": operator_report.get("stop_loss"),
                 "take_profit": operator_report.get("take_profit"),
                 "risk_reward_ratio": operator_report.get("risk_reward_ratio"),
-                "position_size_usd": operator_report.get("position_size_usd")
+                "position_size_usd": operator_report.get("position_size_usd"),
+                **storage.record_header(),
+                "strategy": strategy,
+                "trade_id": storage.record_id(now_utc, strategy, symbol),
+                "entry_time_utc": storage.utc_iso(now_utc),
+                **source,
             }
 
             storage.write_ledger(ledger_path, ledger_entry)
@@ -347,8 +360,11 @@ def _route_to_beta_if_fallback(active_model: str | None) -> None:
         config.BASE_DIR = "output_beta"
 
 
-def _run_manager(client: genai.Client, symbol: str, strategy: str, prompt: str, tech_report: dict, vol_report: dict, data_4h: dict, data_15m: dict) -> None:
-    """Agent 3 for one strategy: ask, show the synthesis and save the analysis footprint."""
+def _run_manager(client: genai.Client, symbol: str, strategy: str, prompt: str, tech_report: dict, vol_report: dict, data_4h: dict, data_15m: dict, models_used: dict[str, str]) -> None:
+    """Agent 3 for one strategy: ask, show the synthesis and save the analysis footprint.
+
+    `models_used` holds the models that answered Agents 1 and 2; this strategy's Agent 3 is added to a copy.
+    """
     label = strategy.capitalize()
     with console.status(f"[bold cyan]Agent 3 ({label} Manager) Thinking... (Model: {config.PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
         manager_text, active_model = agents.query_llm_with_fallback(client, prompt, agents.Agent3ManagerSchema, f"agent_3_{strategy}", symbol)
@@ -368,7 +384,8 @@ def _run_manager(client: genai.Client, symbol: str, strategy: str, prompt: str, 
     title, border = ("[Defensive Strategy Synthesis]", "magenta") if strategy == "defensive" else ("[Greedy Strategy Synthesis]", "yellow")
     render_manager_report(report, title, border)
 
-    filepath = storage.log_execution("analyze", strategy, symbol, data_4h, data_15m, tech_report, vol_report, report)
+    models_used = {**models_used, f"agent_3_{strategy}": active_model}
+    filepath = storage.log_execution("analyze", strategy, symbol, data_4h, data_15m, tech_report, vol_report, report, models_used=models_used)
     now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     console.print(f"[dim]💾 [{now_utc_str}] {label} Footprint saved to: {filepath}[/dim]")
 
@@ -423,6 +440,7 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
             return
 
         _route_to_beta_if_fallback(active_model)
+        models_used = {"agent_1_technical": active_model}
 
         try:
             tech_report = json.loads(agent1_text)
@@ -440,6 +458,7 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
             return
 
         _route_to_beta_if_fallback(active_model)
+        models_used["agent_2_volume"] = active_model
 
         try:
             vol_report = json.loads(agent2_text)
@@ -450,10 +469,10 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
 
         # --- Agent 3: Lead Market Strategist, one call per strategy ---
         if not skip_def:
-            _run_manager(client, symbol, "defensive", agents.build_defensive_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m)
+            _run_manager(client, symbol, "defensive", agents.build_defensive_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m, models_used)
 
         if not skip_greed:
-            _run_manager(client, symbol, "greedy", agents.build_greedy_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m)
+            _run_manager(client, symbol, "greedy", agents.build_greedy_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m, models_used)
 
     except typer.Exit:
         # Re-raise Typer's Exit exception so the CLI can exit gracefully

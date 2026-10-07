@@ -2,7 +2,14 @@
   "metadata": {
     "timestamp": "<LOCAL_ISO T+0s>",
     "symbol": "BTC/USDT",
-    "command_run": "status"
+    "command_run": "status",
+    "schema_version": 1,
+    "strategy_version": "0.1",
+    "exchange": "binance",
+    "market_type": "spot",
+    "timestamp_utc": "2026-10-01T12:00:00Z",
+    "strategy": "system",
+    "run_id": "20261001T120000Z-SYSTEM-BTCUSDT"
   },
   "raw_market_data": {
     "4h": {

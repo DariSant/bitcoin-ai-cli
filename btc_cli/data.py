@@ -3,10 +3,13 @@
 import ccxt
 import pandas as pd
 
+from btc_cli import config
+
 
 def create_exchange() -> ccxt.Exchange:
-    """The exchange every command reads from (Binance spot until the Phase 1 futures item)."""
-    return ccxt.binance()
+    """The exchange every command reads from (config.EXCHANGE_ID: Binance spot until the Phase 1 futures item)."""
+    # Built from the config value, so records can't name a different exchange than the one used.
+    return getattr(ccxt, config.EXCHANGE_ID)()
 
 
 def fetch_ohlcv_data(exchange: ccxt.Exchange, symbol: str, timeframe: str) -> pd.DataFrame:

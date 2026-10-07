@@ -11,6 +11,7 @@ import json
 import ccxt
 import pytest
 
+from btc_cli.config import STRATEGY_VERSION
 from tests.conftest import FROZEN_EPOCH
 from tests.characterization.support import read_json
 
@@ -72,8 +73,12 @@ def test_first_candle_touching_a_level_closes_the_trade(ledger, hit, result, pnl
     assert out.exit_code == 0, out.output
     assert not ledger_file.exists()
     # PnL is the move to the level times position size; close time is the hit candle's open time.
+    # The ledger is in the pre-versioning format: it still resolves, and is not backfilled with version fields.
     assert read_json(history_path(tmp_path)) == [
-        {**ledger, "status": "CLOSED", "result": result, "pnl_usd": pnl, "close_timestamp": NEXT_CANDLE + 900}
+        {
+            **ledger, "status": "CLOSED", "result": result, "pnl_usd": pnl, "close_timestamp": NEXT_CANDLE + 900,
+            "resolved_at_utc": "2026-10-01T12:00:00Z", "resolved_by_strategy_version": STRATEGY_VERSION,
+        }
     ]
     assert f"Trade Closed (DEFENSIVE): {result}" in out.output
     assert exchange.calls == [{"symbol": "BTC/USDT", "timeframe": "15m", "since": None, "limit": 100}]

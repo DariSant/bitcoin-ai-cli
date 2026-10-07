@@ -113,11 +113,14 @@ These answers (full text in section 4) are now built into the items below.
 
 ### Phase 1 – Correctness (bugs that make paper results wrong or misleading)
 
-- [ ] **[P0] Version every record** — Confirmed (no record has version fields) — Effort: M
+- [x] **[P0] Version every record** — Confirmed (no record has version fields) — Effort: M
   - Where: analysis, execution, ledger and history writes (`app.py:L314-L346`, `L741-L786`, `L280-L296`)
   - Problem: the strategy freeze (`AGENTS.md` §2.4) needs every record tagged, so versions can be analyzed separately. Today records have no version, no per-agent model, and closed trades don't link to their analysis.
   - Fix: add `schema_version`, `strategy_version`, UTC timestamp, exchange/market, and `model_used` per agent call to every record. Add the analysis file name to each trade. Readers treat records without these fields as legacy (`schema_version` 0, warm-up). This is a record format change, so present the plan first.
   - Done when: a test shows every newly written record carries the fields, and old records still load.
+  - Status (2026-10-07): done on branch `feat/record-versioning`. Analysis, status, ticket, ledger and history records now carry `schema_version` 1 and `strategy_version` "0.1", plus the exchange, the market type, UTC times and `models_used` per agent call. Tickets, ledgers and history entries also carry `trade_id`, `analysis_file` and `analysis_run_id`. The field list is in `README.md`.
+  - Not covered here (owner decision 2026-10-07): `operator_errors.log` stays free text. Rejections get a structured record in the Phase 4 item "Record every decision".
+  - Every later §2.4 fix must bump `STRATEGY_VERSION` in `btc_cli/config.py` (0.2, 0.3, …; 1.0 once Phase 1 is complete).
 
 - [ ] **[P0] Trade resolution ignores the candle the trade was opened in** — Confirmed — Effort: M
   - Where: `app.py:L235-L239`
