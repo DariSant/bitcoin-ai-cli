@@ -38,6 +38,7 @@ from rich.console import Console  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
 import app as app_module  # noqa: E402
+from btc_cli import config  # noqa: E402
 
 TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TESTS_DIR.parent
@@ -48,8 +49,8 @@ SNAPSHOT_DIR = TESTS_DIR / "characterization" / "snapshots"
 FROZEN_UTC = real_datetime(2026, 10, 1, 12, 0, 0, tzinfo=timezone.utc)
 FROZEN_EPOCH = FROZEN_UTC.timestamp()
 
-PRIMARY_MODEL = app_module.PRIMARY_MODEL
-FALLBACK_MODEL = app_module.FALLBACK_MODEL
+PRIMARY_MODEL = config.PRIMARY_MODEL
+FALLBACK_MODEL = config.FALLBACK_MODEL
 
 
 def load_candles(timeframe: str) -> list[list[float]]:

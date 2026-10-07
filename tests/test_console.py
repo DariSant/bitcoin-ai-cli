@@ -1,5 +1,5 @@
 import pytest
-from app import format_pipe_string
+from btc_cli.console import format_pipe_string
 
 def test_format_pipe_string():
     assert format_pipe_string("MACRO: BULLISH | MICRO: BEARISH | STATUS: CONFLICT") == "  • MACRO: BULLISH\n  • MICRO: BEARISH\n  • STATUS: CONFLICT"
