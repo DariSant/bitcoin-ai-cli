@@ -74,6 +74,8 @@ Each run moves through four stages:
 - Each strategy can have **one open position per symbol** at a time.
 - Before every new run, the tool checks recent 15m candles to see if the open trade hit its take profit (**WIN**) or stop loss (**LOSS**), calculates the profit or loss, and moves it to the trade history.
 - New analysis is paused while a trade is still open.
+- Records are written crash-safely: a file is either fully replaced or left as it was, and a closed trade is never added to the history twice.
+- If a ledger or trade history file can't be read, it is **left exactly as it is** (never overwritten or deleted), the error goes to `error.log`, and that strategy stops opening trades until the file is repaired by hand. The other strategy keeps running, and the command exits with code 1 so a scheduler notices.
 
 ### Terminal Experience
 - Colour-coded panels and loading spinners (via `rich`).

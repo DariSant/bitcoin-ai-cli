@@ -353,28 +353,32 @@ These answers (full text in section 4) are now built into the items below.
   - Done when: the PR is merged and `main` names a live model.
   - Status (2026-10-07): done. PR #28 is merged, and `main` uses `gemini-3.5-flash-lite` with `gemini-2.5-flash` as fallback (`app.py:L37-L38`).
 
-- [ ] **[P0] A damaged history file is silently replaced, losing all closed trades** — Confirmed — Effort: S
+- [x] **[P0] A damaged history file is silently replaced, losing all closed trades** — Confirmed — Effort: S
   - Where: `app.py:L286-L296` (bare `except: pass`)
   - Problem: if `*_trade_history.json` cannot be read (half-written, hand-edited), the code starts a new empty list and **overwrites the file** with just the newest trade. The probe started with 2 old trades in a damaged file and ended with 1 entry.
-  - Fix: if the file exists but cannot be read, rename it to `…_trade_history.corrupt-<UTC time>.json`, log an error, raise an alert, and stop. Never replace history automatically.
+  - Fix: if the file exists but cannot be read, leave it exactly where it is (no rename: `AGENTS.md` §2.3 forbids renaming or moving recorded files), log an error, raise an alert, and stop. Never replace history automatically.
   - Done when: a test with a damaged history file keeps the original bytes and the run exits with an error.
+  - Status (2026-10-07): done on branch `fix/safe-storage`. The fix originally proposed here (rename to `…corrupt-<time>.json`) conflicted with §2.3, so the file is left in place instead. Nothing is written, the trade stays OPEN, the strategy is blocked, the other strategy still runs, and the command exits 1. Alerts come with Phase 5.
 
-- [ ] **[P0] A damaged ledger file is treated as "no open trade"** — Confirmed — Effort: S
+- [x] **[P0] A damaged ledger file is treated as "no open trade"** — Confirmed — Effort: S
   - Where: `app.py:L204-L208`
   - Problem: a `JSONDecodeError` returns `False` ("no position"). The next ticket then overwrites the ledger, and the open trade is lost (probe: `still_open = False`).
-  - Fix: same as above: back up the file, log the error, alert, and block new trades for that strategy until it is fixed.
+  - Fix: same as above: leave the file untouched, log the error, alert, and block new trades for that strategy until it is fixed.
   - Done when: a test with a damaged ledger blocks new trades.
+  - Status (2026-10-07): done on branch `fix/safe-storage`. Invalid JSON, an empty file and a non-object all count as damaged. The command exits 1.
 
-- [ ] **[P1] File writes are not crash-safe, and a crash can duplicate a trade in history** — Confirmed — Effort: S
+- [x] **[P1] File writes are not crash-safe, and a crash can duplicate a trade in history** — Confirmed — Effort: S
   - Where: `app.py:L294-L299`, `L343-L344`, `L762-L763`, `L785-L786`
   - Problem: files are written in place. If the process dies mid-write, the file is half-written. If it dies after appending to history but before deleting the ledger (`L299`), the next run resolves the same trade again and appends it a second time.
   - Fix: add a small `write_json_atomic(path, data)` helper: write to `path + ".tmp"`, `flush`/`fsync`, then `os.replace`. Give every trade a `trade_id` (e.g. UTC time + strategy) and skip appending one whose `trade_id` is already in history.
   - Done when: a test that simulates a crash between the two steps produces exactly one history entry.
+  - Status (2026-10-07): done on branch `fix/safe-storage`. `storage.write_json_atomic` is used for analyses, tickets, ledgers and history, and the bytes written are identical to before. The temp file is `.<name>.<pid>.tmp` in the same folder. History de-duplicates on `trade_id`, or on symbol/entry time/verdict/entry price for legacy trades. The two append-only logs are unchanged.
 
 - [ ] **[P1] Nothing stops two runs overlapping** — Confirmed (no lock exists) — Effort: S
   - Where: whole `auto` / `operate` flow
   - Problem: a scheduled run plus a manual run, or a slow run overlapping the next scheduled one, can both read "no open trade" and both write a ledger.
   - Fix: create a lock file at start with `os.open(path, os.O_CREAT | os.O_EXCL)`. This uses only the standard library, needs no new package, and works on Windows and Linux. Store the process ID (PID) in it and treat the lock as stale if that process is gone. Release it in a `finally:` block.
+  - Caution (found 2026-10-07): don't check "is that PID alive?" with `os.kill(pid, 0)`. On Windows, signal 0 is `CTRL_C_EVENT`, so the check would interrupt a process. Prefer an OS file lock (`fcntl.flock` on Linux, `msvcrt.locking` on Windows), held on an open lock file: the OS releases it when the process dies, so stale locks can't happen and the lock file is never deleted (`AGENTS.md` §5).
   - Done when: starting a second `auto` while one is running prints "another run is in progress" and exits.
 
 - [ ] **[P1] The AI fallback treats every error the same, with no retries or timeout** — Confirmed — Effort: M
