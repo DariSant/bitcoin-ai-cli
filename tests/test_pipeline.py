@@ -104,3 +104,57 @@ def test_a_fresh_legacy_analysis_still_trades_with_an_empty_link(run_cli, clock,
     # The legacy analysis itself is only read, never rewritten.
     assert read_json(path) == analysis
     assert "output_alpha/defensive/BTC_USDT_paper_ledger.json" in files_under(tmp_path)
+
+
+def _damage_defensive_ledger(tmp_path):
+    damaged = tmp_path / "output_alpha" / "defensive" / "BTC_USDT_paper_ledger.json"
+    damaged.parent.mkdir(parents=True, exist_ok=True)
+    damaged.write_text("{broken", encoding="utf-8")
+    return damaged
+
+
+def test_a_damaged_ledger_blocks_only_its_own_strategy_and_operate_exits_1(run_cli, gemini, clock, tmp_path):
+    gemini.script = analysis_replies("BULLISH", LONG_MAGNET, "GO LONG", "GO LONG")
+    assert run_cli("analyze").exit_code == 0
+    damaged = _damage_defensive_ledger(tmp_path)
+    clock.advance(60)
+
+    out = run_cli("operate")
+
+    assert out.exit_code == 1, out.output
+    assert damaged.read_text(encoding="utf-8") == "{broken"
+    assert not (tmp_path / "output_alpha" / "operate" / "defensive").exists()
+    assert read_json(tmp_path / "output_alpha" / "greedy" / "BTC_USDT_paper_ledger.json")["status"] == "OPEN"
+
+
+def test_analyze_still_runs_the_healthy_strategy_then_exits_1(run_cli, gemini, tmp_path):
+    damaged = _damage_defensive_ledger(tmp_path)
+    gemini.script = analysis_replies("BULLISH", LONG_MAGNET, None, "GO LONG")
+
+    out = run_cli("analyze")
+
+    assert out.exit_code == 1, out.output
+    assert gemini.script == []
+    assert [f for f in files_under(tmp_path) if "/analyze/" in f] == [only(tmp_path, "output_alpha/analyze/greedy/*/*.json").relative_to(tmp_path).as_posix()]
+    assert damaged.read_text(encoding="utf-8") == "{broken"
+
+
+def test_analyze_with_every_strategy_damaged_makes_no_ai_calls(run_cli, gemini, tmp_path):
+    _damage_defensive_ledger(tmp_path)
+
+    out = run_cli("analyze", "--def")
+
+    assert out.exit_code == 1, out.output
+    assert gemini.calls == []
+    assert "All requested strategies have open positions" not in out.output
+
+
+def test_auto_runs_every_step_for_the_healthy_strategy_then_exits_1(run_cli, gemini, tmp_path):
+    _damage_defensive_ledger(tmp_path)
+    gemini.script = analysis_replies("BULLISH", LONG_MAGNET, None, "GO LONG")
+
+    out = run_cli("auto")
+
+    assert out.exit_code == 1, out.output
+    assert read_json(tmp_path / "output_alpha" / "greedy" / "BTC_USDT_paper_ledger.json")["status"] == "OPEN"
+    assert (tmp_path / "output_alpha" / "defensive" / "BTC_USDT_paper_ledger.json").read_text(encoding="utf-8") == "{broken"

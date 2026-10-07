@@ -2,6 +2,16 @@
 
 Shared memory for every agent working on this repo (`AGENTS.md` §12). Newest first. Keep each lesson short: date, what happened, the rule, and the source.
 
+## 2026-10-07: merging is the owner's job, even when asked
+- What: the owner asked the agent to "merge everything into main". `gh pr merge` was then blocked by the Claude Code permission check ("merge without review"). `AGENTS.md` §9 also says the agent never merges.
+- Rule: push the branch, open the PR, and hand the owner the link to merge. Don't look for another way to merge. Stack follow-up work on a branch made from the unmerged one, and say so in its PR.
+- Source: PR #34, conversation 2026-10-07.
+
+## 2026-10-07: `os.kill(pid, 0)` is not a harmless "is it alive?" check on Windows
+- What: on Windows, signal 0 is `CTRL_C_EVENT`, so `os.kill(pid, 0)` sends Ctrl+C to the process instead of just probing it.
+- Rule: for the run lock, use an OS file lock (`fcntl.flock` / `msvcrt.locking`), never PID probing.
+- Source: planning the run lock on branch `fix/safe-storage`.
+
 ## 2026-10-07: `UPDATE_SNAPSHOTS=1` rewrites every snapshot, not just the changed ones
 - What: this checkout has `core.autocrlf=true`, so snapshots sit on disk with CRLF. The snapshot writer writes LF, so regenerating marks all 21 files as modified even when only 4 changed. Git itself shows no content diff for the rest.
 - Rule: after regenerating, run `git diff --stat` (it ignores the CRLF/LF difference) to see the real changes, then restore the untouched files with `git checkout -- <files>`. To prove a record change is additive, copy the snapshots aside first and compare key by key, normalising line endings.

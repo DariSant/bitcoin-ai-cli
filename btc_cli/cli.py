@@ -46,7 +46,8 @@ def analyze_command(
     Outputs the Lead Market Strategist thesis for selected strategies.
     """
     run_def, run_greed = _strategy_flags(def_flag, greed_flag)
-    pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed)
+    if pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed):
+        raise typer.Exit(code=1)  # a damaged ledger or history blocked a strategy
 
 @app.command("operate")
 def operate_command(
@@ -58,7 +59,8 @@ def operate_command(
     Execute trading operations based on recent analysis.
     """
     run_def, run_greed = _strategy_flags(def_flag, greed_flag)
-    pipeline.run_operate(symbol, run_def=run_def, run_greed=run_greed)
+    if pipeline.run_operate(symbol, run_def=run_def, run_greed=run_greed):
+        raise typer.Exit(code=1)  # a damaged ledger or history blocked a strategy
 
 @app.command("mock")
 def mock_command(filename: str = typer.Argument(..., help="The mock payload file name (e.g. mock_long.json)")):
@@ -93,8 +95,11 @@ def auto_command(
     run_def, run_greed = _strategy_flags(def_flag, greed_flag)
 
     pipeline.run_status(symbol)
-    pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed)
-    pipeline.run_operate(symbol, run_def=run_def, run_greed=run_greed)
+    # Both steps run even if a damaged file blocks one strategy, so the healthy one keeps trading.
+    analyze_damaged = pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed)
+    operate_damaged = pipeline.run_operate(symbol, run_def=run_def, run_greed=run_greed)
+    if analyze_damaged or operate_damaged:
+        raise typer.Exit(code=1)
 
 @app.command()
 def ask(question: str):
