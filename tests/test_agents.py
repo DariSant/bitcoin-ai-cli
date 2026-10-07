@@ -1,5 +1,7 @@
 """Gemini call policy (AGENTS.md §5): retries, fallback, no-fallback errors and timeouts."""
 
+import json
+
 import httpx
 import pytest
 from google.genai import errors
@@ -130,3 +132,37 @@ def test_every_client_has_the_configured_timeout(run_cli, gemini):
 
     (kwargs,) = gemini.client_kwargs
     assert kwargs["http_options"].timeout == config.GEMINI_TIMEOUT_SECONDS * 1000
+
+
+# --- Reply validation (TODO.md "AI responses are not validated") ---
+
+VALID_MANAGER = {"executive_summary": "s", "confluence_matrix": "c", "risk_vector": "r", "final_verdict": "GO LONG"}
+
+
+def test_a_valid_reply_is_returned_exactly_as_parsed():
+    text = json.dumps({**VALID_MANAGER, "extra": "kept"})
+    assert agents.parse_reply(text, agents.Agent3ManagerSchema, "agent_3_defensive") == {**VALID_MANAGER, "extra": "kept"}
+
+
+@pytest.mark.parametrize(
+    ("reply", "reason"),
+    [
+        ("this is not json", "Invalid JSON"),
+        (json.dumps({k: v for k, v in VALID_MANAGER.items() if k != "final_verdict"}), "final_verdict: Field required"),
+        (json.dumps({**VALID_MANAGER, "final_verdict": "BUY"}), "final_verdict: Input should be 'GO LONG', 'GO SHORT' or 'SIT ON HANDS'"),
+        (json.dumps({**VALID_MANAGER, "risk_vector": 5}), "risk_vector: Input should be a valid string"),
+        (json.dumps(["not", "an", "object"]), "Input should be an object"),
+    ],
+    ids=["not-json", "missing-verdict", "unknown-verdict", "wrong-type", "not-an-object"],
+)
+def test_an_invalid_reply_names_the_problem(reply, reason):
+    with pytest.raises(agents.InvalidReplyError) as raised:
+        agents.parse_reply(reply, agents.Agent3ManagerSchema, "agent_3_defensive")
+    assert reason in raised.value.reason
+    assert raised.value.raw == reply
+
+
+def test_a_bias_outside_the_schema_is_rejected_for_agent_1():
+    reply = {"general_analysis": "a", "trend_state": "t", "momentum_divergence": "m", "key_level_interaction": "k", "bias": "VERY_BULLISH"}
+    with pytest.raises(agents.InvalidReplyError, match="bias"):
+        agents.parse_reply(json.dumps(reply), agents.Agent1TechSchema, "agent_1_technical")

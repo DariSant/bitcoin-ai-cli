@@ -75,7 +75,7 @@ def test_invalid_json_reply_exits_1_without_writing(run_cli, gemini, tmp_path):
     out = run_cli("analyze")
 
     assert out.exit_code == 1
-    assert "AI processing failed" in out.output
+    assert "Agent 1 (Technical Analyst) gave an invalid reply" in out.output
     assert files_under(tmp_path) == []
 
 

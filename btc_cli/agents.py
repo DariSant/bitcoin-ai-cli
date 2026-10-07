@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import httpx
 from google import genai
 from google.genai import errors, types
+from pydantic import TypeAdapter, ValidationError
 from rich.panel import Panel
 
 from btc_cli import config, storage
@@ -39,6 +40,31 @@ class Agent3ManagerSchema(typing.TypedDict):
     confluence_matrix: str
     risk_vector: str
     final_verdict: typing.Literal["GO LONG", "GO SHORT", "SIT ON HANDS"]
+
+
+# --- Reply validation ---
+
+class InvalidReplyError(Exception):
+    """An AI reply that is not valid JSON or does not match the schema the model was given."""
+
+    def __init__(self, agent: str, reason: str, raw: str) -> None:
+        super().__init__(f"{agent}: {reason}")
+        self.agent = agent
+        self.reason = reason
+        self.raw = raw
+
+
+def parse_reply(text: str, schema: type, agent: str) -> dict:
+    """The reply as a dict, checked against the same schema Gemini was given; raises InvalidReplyError.
+
+    The dict is the reply exactly as parsed, so the saved record is unchanged; validation only checks it.
+    """
+    try:
+        TypeAdapter(schema).validate_json(text)
+    except ValidationError as e:
+        problems = "; ".join(f"{'.'.join(str(p) for p in err['loc']) or 'reply'}: {err['msg']}" for err in e.errors()[:3])
+        raise InvalidReplyError(agent, problems, text) from e
+    return json.loads(text)
 
 
 # --- Model call with retries and fallback (AGENTS.md §5) ---

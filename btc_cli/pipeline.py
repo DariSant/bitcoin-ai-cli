@@ -375,10 +375,14 @@ def run_mock(filename: str) -> None:
     render_execution_ticket(ticket_data, "MOCK")
 
 
-def _ai_failed(message: str) -> typer.Exit:
-    logging.error(message, exc_info=True)
-    typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-    return typer.Exit(code=1)
+def _checked_reply(text: str, schema: type, agent: str, label: str) -> dict | None:
+    """The validated reply, or None after logging the raw text and telling the user (TODO.md "AI responses are not validated")."""
+    try:
+        return agents.parse_reply(text, schema, agent)
+    except agents.InvalidReplyError as e:
+        logging.error(f"Invalid reply from {e.agent} ({e.reason}). Raw text: {e.raw}")
+        console.print(f"[bold red]❌ {label} gave an invalid reply ({e.reason}). Details in error.log.[/bold red]")
+        return None
 
 
 def _route_to_beta_if_fallback(active_model: str | None) -> None:
@@ -391,7 +395,8 @@ def _run_manager(client: genai.Client, router: agents.ModelRouter, symbol: str, 
     """Agent 3 for one strategy: ask, show the synthesis and save the analysis footprint.
 
     `models_used` holds the models that answered Agents 1 and 2; this strategy's Agent 3 is added to a copy.
-    Returns False if neither model answered (the strategy is skipped, the command then exits 1).
+    Returns False if neither model answered or the reply was invalid: only this strategy is skipped,
+    the other still runs, and the command then exits 1.
     """
     label = strategy.capitalize()
     with console.status(f"[bold cyan]Agent 3 ({label} Manager) Thinking... (Model: {config.PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
@@ -404,10 +409,10 @@ def _run_manager(client: genai.Client, router: agents.ModelRouter, symbol: str, 
 
     _route_to_beta_if_fallback(active_model)
 
-    try:
-        report = json.loads(manager_text)
-    except json.JSONDecodeError:
-        raise _ai_failed(f"Failed to parse Agent 3 ({label}) JSON output. Raw text: {manager_text}")
+    report = _checked_reply(manager_text, agents.Agent3ManagerSchema, f"agent_3_{strategy}", f"Agent 3 ({label} Manager)")
+    if report is None:
+        console.print(f"[yellow]Skipping the {label} strategy this cycle.[/yellow]")
+        return False
 
     title, border = ("[Defensive Strategy Synthesis]", "magenta") if strategy == "defensive" else ("[Greedy Strategy Synthesis]", "yellow")
     render_manager_report(report, title, border)
@@ -478,10 +483,11 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
         _route_to_beta_if_fallback(active_model)
         models_used = {"agent_1_technical": active_model}
 
-        try:
-            tech_report = json.loads(agent1_text)
-        except json.JSONDecodeError:
-            raise _ai_failed(f"Failed to parse Agent 1 (Technical) JSON output. Raw text: {agent1_text}")
+        tech_report = _checked_reply(agent1_text, agents.Agent1TechSchema, "agent_1_technical", "Agent 1 (Technical Analyst)")
+        if tech_report is None:
+            # Both strategies need Agent 1, so the whole cycle is skipped; auto still runs operate.
+            console.print("[yellow]Skipping this cycle.[/yellow]")
+            return True
 
         render_technical_report(tech_report)
 
@@ -496,10 +502,10 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
         _route_to_beta_if_fallback(active_model)
         models_used["agent_2_volume"] = active_model
 
-        try:
-            vol_report = json.loads(agent2_text)
-        except json.JSONDecodeError:
-            raise _ai_failed(f"Failed to parse Agent 2 (Volume) JSON output. Raw text: {agent2_text}")
+        vol_report = _checked_reply(agent2_text, agents.Agent2VolumeSchema, "agent_2_volume", "Agent 2 (Liquidity/Volume Analyst)")
+        if vol_report is None:
+            console.print("[yellow]Skipping this cycle.[/yellow]")
+            return True
 
         render_volume_report(vol_report)
 

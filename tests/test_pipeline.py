@@ -193,3 +193,29 @@ def test_auto_still_resolves_open_trades_when_the_ai_is_down_then_exits_1(run_cl
     assert closed["result"] == "WIN"
     # operate still ran after the AI failure.
     assert "No recent analysis has been run in the last 10 minutes for DEFENSIVE" in out.output
+
+
+def test_an_invalid_manager_reply_skips_only_that_strategy_and_is_logged(run_cli, gemini, tmp_path, caplog):
+    """TODO.md done-when: a reply missing final_verdict is logged and skipped without stopping the other strategy."""
+    a1, a2, defensive, greedy = analysis_replies("BULLISH", LONG_MAGNET, "GO LONG", "GO LONG")
+    broken = json.dumps({k: v for k, v in json.loads(defensive).items() if k != "final_verdict"})
+    gemini.script = [a1, a2, broken, greedy]
+
+    out = run_cli("analyze")
+
+    assert out.exit_code == 1, out.output
+    assert "Agent 3 (Defensive Manager) gave an invalid reply (final_verdict: Field required)" in out.output
+    assert "Skipping the Defensive strategy this cycle." in out.output
+    assert broken in caplog.text  # the raw reply is in the log
+    written = [f.split("/")[0:3] for f in files_under(tmp_path) if f.startswith("output_")]
+    assert written == [["output_alpha", "analyze", "greedy"]]
+
+
+def test_auto_still_runs_operate_after_an_invalid_agent_1_reply(run_cli, gemini, tmp_path):
+    gemini.script = ["{not json"]
+
+    out = run_cli("auto")
+
+    assert out.exit_code == 1, out.output
+    assert "Skipping this cycle." in out.output
+    assert "No recent analysis found for DEFENSIVE strategy." in out.output  # operate ran
