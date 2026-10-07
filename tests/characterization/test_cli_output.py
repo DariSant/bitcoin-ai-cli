@@ -9,7 +9,7 @@ from tests.conftest import PRIMARY_MODEL, REPO_ROOT
 
 @pytest.fixture
 def mock_inputs(tmp_path):
-    """`mock` reads mock_json/ relative to the current folder, so copy the real inputs into tmp_path."""
+    """The harness points config.MOCK_DIR at tmp_path/mock_json, so copy the real inputs there."""
     shutil.copytree(REPO_ROOT / "mock_json", tmp_path / "mock_json")
 
 

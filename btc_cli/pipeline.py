@@ -40,7 +40,7 @@ def _block_on_damaged_record(strategy: str, kind: str, error: storage.DamagedRec
     """Log and show a damaged recorded file, then block the strategy (AGENTS.md §2.3: keep the bytes, never overwrite)."""
     logging.error(f"Damaged {kind} for {strategy}, left untouched: {error}", exc_info=error)
     console.print(
-        f"[bold red]❌ The {kind} file for {strategy.upper()} can't be read and was left untouched: {error.path}\n"
+        f"[bold red]❌ The {kind} file for {strategy.upper()} can't be read and was left untouched: {storage.display_path(error.path)}\n"
         f"New trades for {strategy.upper()} are blocked until it is repaired. Details in error.log.[/bold red]"
     )
     return Position.DAMAGED
@@ -149,7 +149,7 @@ def run_status(symbol: str = 'BTC/USDT') -> None:
     # Status is saved under the "system" strategy
     filepath = storage.log_execution("status", "system", symbol, data_4h, data_15m)
     now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-    console.print(f"[dim]💾 [{now_utc_str}] Footprint saved to: {filepath}[/dim]")
+    console.print(f"[dim]💾 [{now_utc_str}] Footprint saved to: {storage.display_path(filepath)}[/dim]")
 
 
 def _reject_ticket(final_verdict: str, current_price, threat_level, magnet_target, order: trade_operator.OrderCalc) -> None:
@@ -283,7 +283,7 @@ def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
             filepath = storage.write_execution_footprint(now, now_utc, strategy, symbol, operator_payload, operator_report, source)
 
             now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-            console.print(f"[dim]💾 [{now_utc_str}] Execution Footprint saved to: {filepath}[/dim]")
+            console.print(f"[dim]💾 [{now_utc_str}] Execution Footprint saved to: {storage.display_path(filepath)}[/dim]")
 
             # --- Save Active Ledger (paper_ledger.json) ---
             ledger_path = storage.ledger_path(strategy, symbol)
@@ -309,7 +309,7 @@ def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
             storage.write_ledger(ledger_path, ledger_entry)
 
             now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-            console.print(f"[dim]💾 [{now_utc_str}] Active Ledger updated: {ledger_path}[/dim]")
+            console.print(f"[dim]💾 [{now_utc_str}] Active Ledger updated: {storage.display_path(ledger_path)}[/dim]")
 
         except typer.Exit:
             raise
@@ -326,12 +326,12 @@ def run_mock(filename: str) -> None:
     Feed a mock JSON payload directly to Agent 4 and display the Execution Ticket.
     """
     # Read and validate the payload
-    filepath = pathlib.Path(f"mock_json/{filename}")
+    filepath = pathlib.Path(config.MOCK_DIR) / filename
     if not filepath.exists() or not filepath.is_file():
-        raise ValueError(f"File not found: {filepath}")
+        raise ValueError(f"File not found: {pathlib.Path(config.MOCK_DIR.name) / filename}")
 
     try:
-        with open(filepath, "r") as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             operator_payload = json.load(f)
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON in payload file: {e}")
@@ -382,9 +382,9 @@ def _ai_failed(message: str) -> typer.Exit:
 
 
 def _route_to_beta_if_fallback(active_model: str | None) -> None:
-    """Known P0 bug: one fallback answer moves the rest of this process to output_beta."""
+    """Known P0 bug: one fallback answer moves the rest of this process to output_beta (config.BETA_DIR)."""
     if active_model == config.FALLBACK_MODEL:
-        config.BASE_DIR = "output_beta"
+        config.BASE_DIR = config.BETA_DIR
 
 
 def _run_manager(client: genai.Client, symbol: str, strategy: str, prompt: str, tech_report: dict, vol_report: dict, data_4h: dict, data_15m: dict, models_used: dict[str, str]) -> None:
@@ -414,7 +414,7 @@ def _run_manager(client: genai.Client, symbol: str, strategy: str, prompt: str, 
     models_used = {**models_used, f"agent_3_{strategy}": active_model}
     filepath = storage.log_execution("analyze", strategy, symbol, data_4h, data_15m, tech_report, vol_report, report, models_used=models_used)
     now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-    console.print(f"[dim]💾 [{now_utc_str}] {label} Footprint saved to: {filepath}[/dim]")
+    console.print(f"[dim]💾 [{now_utc_str}] {label} Footprint saved to: {storage.display_path(filepath)}[/dim]")
 
 
 def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True) -> bool:

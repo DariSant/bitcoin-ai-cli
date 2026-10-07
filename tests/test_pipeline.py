@@ -158,3 +158,15 @@ def test_auto_runs_every_step_for_the_healthy_strategy_then_exits_1(run_cli, gem
     assert out.exit_code == 1, out.output
     assert read_json(tmp_path / "output_alpha" / "greedy" / "BTC_USDT_paper_ledger.json")["status"] == "OPEN"
     assert (tmp_path / "output_alpha" / "defensive" / "BTC_USDT_paper_ledger.json").read_text(encoding="utf-8") == "{broken"
+
+
+def test_the_folder_a_command_starts_in_does_not_matter(run_cli, monkeypatch, tmp_path):
+    """AGENTS.md §5: paths come from the data folder, never from the current folder."""
+    elsewhere = tmp_path / "started_here"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    assert run_cli("status").exit_code == 0
+
+    assert list(elsewhere.iterdir()) == []
+    assert only(tmp_path, "output_alpha/status/system/*/*.json").is_file()

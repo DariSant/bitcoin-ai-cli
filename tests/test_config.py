@@ -1,7 +1,12 @@
 """Tests for btc_cli.config: loading and checking config.toml."""
 
 import copy
+import dataclasses
+import os
+import subprocess
+import sys
 import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +14,7 @@ from btc_cli import config
 
 # The values hardcoded before they moved to config.toml (strategy_version "0.1").
 FROZEN_0_1 = config.Settings(
+    data_dir=".",  # not frozen; the guard below ignores it
     exchange_id="binance",
     market_type="spot",
     analysis_candles=200,
@@ -39,7 +45,7 @@ def test_config_toml_holds_the_strategy_0_1_values():
     owner's approval, a STRATEGY_VERSION bump and a CHANGELOG entry. Then update this test.
     """
     assert config.STRATEGY_VERSION == "0.1"
-    assert config.load_settings() == FROZEN_0_1
+    assert dataclasses.replace(config.load_settings(), data_dir=".") == FROZEN_0_1
 
 
 def test_module_constants_mirror_the_settings():
@@ -101,3 +107,38 @@ def test_unreadable_files_raise_config_error(tmp_path):
     broken.write_text("[market\nexchange_id = ", encoding="utf-8")
     with pytest.raises(config.ConfigError, match="not valid TOML"):
         config.load_settings(broken)
+
+
+# --- Data folder (AGENTS.md §5: paths from the project root, not the current folder) ---
+
+def test_the_default_data_folder_is_the_project_root():
+    assert config.load_settings().data_dir == "."
+    assert config.resolve_data_dir(".", None) == config.PROJECT_ROOT
+
+
+def test_a_relative_data_folder_starts_at_the_project_root(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    assert config.resolve_data_dir("data", None) == config.PROJECT_ROOT / "data"
+
+
+def test_an_absolute_data_folder_is_used_as_is(tmp_path):
+    assert config.resolve_data_dir(str(tmp_path), None) == tmp_path.resolve()
+
+
+def test_the_environment_override_wins_unless_blank(tmp_path):
+    assert config.resolve_data_dir(".", str(tmp_path)) == tmp_path.resolve()
+    assert config.resolve_data_dir(".", "  ") == config.PROJECT_ROOT
+
+
+def test_every_data_path_is_absolute_and_inside_the_data_folder():
+    for path in (config.BASE_DIR, config.BETA_DIR, config.LOGS_DIR, config.ERROR_LOG):
+        assert Path(path).is_absolute()
+        assert Path(path).parent == Path(config.DATA_DIR)
+
+
+def test_the_environment_override_reaches_a_fresh_process(tmp_path):
+    """BTC_CLI_DATA_DIR is read when the program starts. Only btc_cli.config is imported, so no .env is read."""
+    env = {**os.environ, config.DATA_DIR_ENV: str(tmp_path)}
+    script = "from btc_cli import config; print(config.DATA_DIR); print(config.BASE_DIR)"
+    out = subprocess.run([sys.executable, "-c", script], cwd=config.PROJECT_ROOT, env=env, capture_output=True, text=True, check=True)
+    assert out.stdout.splitlines() == [str(tmp_path.resolve()), str(tmp_path.resolve() / "output_alpha")]
