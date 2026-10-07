@@ -2,6 +2,11 @@
 
 Shared memory for every agent working on this repo (`AGENTS.md` §12). Newest first. Keep each lesson short: date, what happened, the rule, and the source.
 
+## 2026-10-07: trade-history APIs differ per exchange, and ccxt hides it
+- What: ccxt's `fetch_trades(symbol, since=...)` silently **ignores `since`** on OKX and Bybit and returns the latest trades. Binance USDT-M refuses anything older than 48 h (`-4166`), whether you query by time or by trade id. Paging OKX by timestamp (`type=2`, "before ts") skips trades that share the boundary millisecond.
+- Rule: never trust `since` without checking the returned timestamps. For history, use Binance REST (48 h) plus the `data.binance.vision` daily archive, and OKX's raw `history-trades` endpoint paged by `tradeId`. Compare against candles by trade timestamp, and remember that Bybit candles open at the previous close and Binance candles can count a boundary trade in the next minute.
+- Source: `research/tick_data_study.py`, report `research/results/tick_data_2026-10-07.md`.
+
 ## 2026-10-07: a venv's `python.exe` on Windows is a launcher with its own PID
 - What: `subprocess.Popen([sys.executable, ...]).pid` under `uv` on Windows is the PID of the venv launcher, not of the interpreter that runs the code, so `os.getpid()` in the child differs.
 - Rule: when a test needs a child's real PID, have the child print `os.getpid()`.

@@ -14,6 +14,13 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 
 ## 2026-10-07
 
+### Research
+- **Tick data study** (`research/tick_data_study.py`, report `research/results/tick_data_2026-10-07.md`; M1.1 in `TODO.md`). This answers the §2.6 question that had to be settled before the precise trade-resolution design.
+  - **Binance USDT-M:** individual trades are available at any age, through REST for the last 48 h and the public daily archive before that. They are complete: a whole day's trades match the candle volume exactly.
+  - **Binance candles:** they sometimes count a trade at a minute boundary in the next minute, which moved a high or low by one tick in 4 of 1,440 minutes. So resolution will decide by trade timestamps and check the neighbouring minutes' edges.
+  - **Backups:** OKX REST goes back about 3 months, needs the raw endpoint paged by trade id, and every tested minute rebuilt exactly. Bybit has daily archive files only, and its candles open at the previous close. OKX is recommended as the backup exchange.
+  - Public data only, no Gemini calls, about 60 MB downloaded.
+
 ### Maintenance
 - **`TODO.md` reviewed:** new section 0 "Status and next steps", with a progress table per phase, a milestone plan (M1 robustness groundwork → M2 Phase 1 batch, versions 0.2 to 1.0 → M3 ready for unattended running → M4 deploy → M5 evaluate), and the owner decisions needed. Progress notes were added to four partly done items.
 - **PR fix:** #35 (safe storage) had merged into its stacked base branch instead of `main`. It is re-opened as #39, and #36–#38 now target `main`. A lesson was recorded.
