@@ -208,8 +208,8 @@ def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
             now_dt = datetime.now(timezone.utc) if file_time.tzinfo else datetime.now()
 
             diff = now_dt - file_time
-            if diff.total_seconds() > 600:
-                console.print(f"[yellow]No recent analysis has been run in the last 10 minutes for {strategy.upper()}.[/yellow]")
+            if diff.total_seconds() > config.ANALYSIS_MAX_AGE_SECONDS:
+                console.print(f"[yellow]No recent analysis has been run in the last {config.ANALYSIS_MAX_AGE_SECONDS // 60} minutes for {strategy.upper()}.[/yellow]")
                 continue
 
             synthesis = analysis.get("agent_3_synthesis", {})
@@ -244,8 +244,8 @@ def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
 
             operator_payload = {
                 "verdict": final_verdict,
-                "account_balance_usdt": 10000.0,
-                "risk_per_trade_percent": 1.0,
+                "account_balance_usdt": config.ACCOUNT_BALANCE_USDT,
+                "risk_per_trade_percent": config.RISK_PER_TRADE_PERCENT,
                 "current_price": current_price,
                 "atr_14": atr_14,
                 "agent_1_threat_level": agent_1_threat_level,

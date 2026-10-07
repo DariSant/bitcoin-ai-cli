@@ -1,0 +1,34 @@
+# Settings for the Bitcoin AI CLI, read by btc_cli/config.py when the program starts.
+# Secrets (the Gemini API key) never go here: they stay in .env.
+#
+# STRATEGY FREEZE (AGENTS.md §2.4): every section marked [frozen] decides which trades are
+# taken or how they are scored. Changing a value there needs the owner's approval, a bump of
+# STRATEGY_VERSION in btc_cli/config.py, and a CHANGELOG.md entry. Each version is analysed
+# separately, so an unannounced change silently splits the dataset.
+
+[market]  # [frozen]
+exchange_id = "binance"        # ccxt exchange class; "binance" = Binance spot
+market_type = "spot"           # must match exchange_id; written into every record
+analysis_candles = 200         # candles fetched per timeframe (4h and 15m) for the indicators
+resolution_candles = 100       # 15m candles fetched to resolve an open trade (100 = 25 hours)
+
+[gemini]  # [frozen]
+# The primary model is tried first; any error switches that call to the fallback model.
+primary_model = "gemini-3.5-flash-lite"
+fallback_model = "gemini-2.5-flash"
+
+[indicators]  # [frozen]
+# EMA 34/89/144, RSI 13/47, VMA 20 and ATR 14 are not settings: their lengths are part of the
+# field names (ema_34, rsi_13, ...) that the prompts and records use.
+swing_lookback = 20            # candles for calculated_support / calculated_resistance
+volume_profile_bins = 10       # equal price bins for POC / VAH / VAL
+value_area_share = 0.70        # share of volume inside the value area
+
+[operator]  # [frozen]
+risk_usd = 100.0               # fixed dollar risk per trade (equity-based sizing is a Phase 1 item)
+threat_buffer_atr = 0.5        # stop = threat level -/+ this many 15m ATRs
+min_stop_atr = 1.0             # operate only: the stop is at least this many 15m ATRs from entry
+analysis_max_age_seconds = 600 # operate ignores analyses older than this
+# Written into each operator payload for the record; the math does not use them yet.
+account_balance_usdt = 10000.0
+risk_per_trade_percent = 1.0

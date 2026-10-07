@@ -17,8 +17,7 @@ def fetch_ohlcv_data(exchange: ccxt.Exchange, symbol: str, timeframe: str) -> pd
     Fetch OHLCV data for a given symbol and timeframe and return a Pandas DataFrame.
     """
     try:
-        # Fetch the last 200 candles
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=200)
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=config.ANALYSIS_CANDLES)
     except ccxt.NetworkError as e:
         raise RuntimeError(f"Network error fetching data for {timeframe} timeframe: {e}")
     except ccxt.ExchangeError as e:
@@ -35,6 +34,6 @@ def fetch_ohlcv_data(exchange: ccxt.Exchange, symbol: str, timeframe: str) -> pd
 
 
 def fetch_resolution_candles(symbol: str) -> list[list]:
-    """Raw 15m candles used to resolve open trades: the last 100, i.e. 25 hours (known P0 limit)."""
+    """Raw 15m candles used to resolve open trades: the last RESOLUTION_CANDLES (100 = 25 hours, known P0 limit)."""
     exchange = create_exchange()
-    return exchange.fetch_ohlcv(symbol, timeframe="15m", limit=100)
+    return exchange.fetch_ohlcv(symbol, timeframe="15m", limit=config.RESOLUTION_CANDLES)

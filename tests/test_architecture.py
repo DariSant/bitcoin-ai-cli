@@ -18,9 +18,11 @@ def imports_of(module: str) -> set[str]:
         if isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module)
             if node.module == "btc_cli":
+                # `from btc_cli import config` imports the module btc_cli.config, not the package as a whole.
                 names.update(f"btc_cli.{alias.name}" for alias in node.names)
+            else:
+                names.add(node.module)
     return names
 
 
