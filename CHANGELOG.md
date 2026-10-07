@@ -15,6 +15,13 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 ## 2026-10-07
 
 ### Fixed
+- **AI replies are now validated** (branch `fix/validate-ai-replies`; `TODO.md` Phase 2 item ticked, M1.4). Before, only "is it JSON?" was checked. A missing field silently became `NEUTRAL` or `SIT ON HANDS`, and a JSON error in one strategy's Agent 3 stopped the whole run, so the other strategy got no analysis that cycle and the A/B arms drifted apart.
+  - `agents.parse_reply` checks every reply against the same `TypedDict` schema Gemini is given: required fields, text types, allowed values such as `final_verdict` and `bias`. What Gemini receives is unchanged.
+  - **Invalid Agent 3 reply:** only that strategy is skipped and the other still runs.
+  - **Invalid Agent 1 or 2 reply:** the cycle is skipped, but `auto` still runs `operate` (before, it stopped the whole run).
+  - In both cases the raw reply goes to `error.log` and the command exits 1. Valid replies are saved exactly as before; every snapshot is unchanged.
+  - `pydantic` added as a direct dependency (`uv add pydantic`, approved 2026-10-04; same version as before, now declared). `pyproject.toml` and `uv.lock` updated.
+  - No trade decision changes: an invalid reply never led to a trade before either. 9 new tests (168 in total).
 - **Gemini calls now have a timeout, sensible retries and a stricter fallback** (branch `fix/gemini-error-handling`; `TODO.md` Phase 2 item ticked, M1.3). Before, any error switched straight to the backup model with no retry and no timeout. A bad API key wasted a call on the backup, and the backup's own error was thrown away.
   - **Timeout:** every request times out after 60 s. The SDK never retries by default, so these retries are the only ones.
   - **Temporary errors:** 5xx, timeouts and connection errors are retried after 2 s and 4 s, at most 3 attempts per model (§5).

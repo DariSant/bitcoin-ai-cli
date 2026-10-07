@@ -45,7 +45,7 @@ Sections 1–4 below are the original audit of 2026-10-04, kept for its evidence
 1. ~~**Tick-data study**~~ Done 2026-10-07: feasible at any age. Binance REST covers 48 h, the daily archive covers everything older, and the data is complete. Recommended backup: OKX. See the Phase 1 same-candle item and `research/results/tick_data_2026-10-07.md`.
 2. ~~**Total AI failure exits non-zero**~~ Done 2026-10-07 (`fix/ai-failure-exit-code`).
 3. ~~**Gemini error handling**~~ Done 2026-10-07 (`fix/gemini-error-handling`).
-4. **Validate AI replies** with `pydantic` (approved): a bad reply skips only that strategy and is logged (Phase 2, M).
+4. ~~**Validate AI replies**~~ Done 2026-10-07 (`fix/validate-ai-replies`).
 5. **Binance retries** and one shared exchange object with a timeout (Phase 2, S). M2.1 extends this helper.
 6. **`mock` uses `compute_order`**, so it tests the real math (Phase 1, S). `mock` affects no trade, so no version bump is needed, but its snapshot changes on purpose.
 7. **`operate` picks the analysis by its own UTC timestamp** from the current month only, not by file modification time across every month (Phase 2 P2, S).
@@ -490,13 +490,18 @@ These answers (full text in section 4) are now built into the items below.
   - Done when: a test with both models failing gets a non-zero exit code.
   - Status (2026-10-07): done on branch `fix/ai-failure-exit-code`. `analyze` and `auto` exit 1 when neither model answers, for Agent 1, Agent 2 or one strategy's Agent 3. The other strategy still runs, and `auto` still runs `operate`, so open trades are resolved. `ask` exits 1 when both models are down or on a Gemini API error. Exit 1 rather than 2, because the README reserves 2 for usage mistakes.
 
-- [ ] **[P1] AI responses are not validated** — Confirmed — Effort: M
+- [x] **[P1] AI responses are not validated** — Confirmed — Effort: M
   - Where: `app.py:L978`, `L1037`, `L1108`, `L1175`, and `.get(…, 'NEUTRAL' / 'SIT ON HANDS')` defaults
   - Problem:
     - Only `json.loads` is checked. Missing keys or unexpected values become NEUTRAL / SIT ON HANDS without any record.
     - A JSON error in Agent 3 Defensive calls `typer.Exit` (`L1112`), so Greedy never runs that cycle. The two A/B arms then get different amounts of data.
   - Fix: switch the `TypedDict` schemas to `pydantic` models and use `response.parsed`. Run `uv add pydantic` (**approved 2026-10-04**; it is already installed as a dependency of `google-genai`). On failure, log the raw text, mark *that strategy* as skipped, and continue with the other one.
   - Done when: a fake response missing `final_verdict` is logged and skipped without stopping the other strategy.
+  - Status (2026-10-07): done on branch `fix/validate-ai-replies`.
+    - `pydantic` is now a direct dependency (`uv add pydantic`, approved 2026-10-04; the same 2.12.5 that was already installed).
+    - `agents.parse_reply` checks each reply against the **same `TypedDict` schema Gemini is given**, so the request is unchanged. The `pydantic`-model switch suggested above would change what Gemini receives (§2.4) and wasn't needed.
+    - An invalid Agent 3 reply skips only that strategy. An invalid Agent 1 or 2 reply skips the cycle, but `auto` still runs `operate`. Either way the raw text goes to `error.log` and the command exits 1.
+    - Valid replies are saved exactly as before, so every snapshot is unchanged.
 
 - [ ] **[P1] Store the Gemini quota in config, stay under it, and check models and limits regularly** — Confirmed (owner reports 500 RPD) — Effort: M
   - Where: `app.py:L37-L38`, call pattern in `L967-L1165`; new `config.toml`; new `check-setup` command
@@ -625,7 +630,7 @@ These answers (full text in section 4) are now built into the items below.
   - Problem: the trade math is mixed in with file reading, printing and network calls, so it cannot be tested on its own, and the copies have already drifted apart (the mock bug above).
   - Fix: pull out small functions that only take inputs and return a result, with no file or network access: `compute_order`, `resolve_trade(candles, ledger)`, `compute_pnl`, `validate_agent_response`, `is_analysis_fresh`. The command functions just load data, call these, and save.
   - Done when: each of these functions has unit tests that run without network or disk.
-  - Progress (2026-10-07): the `btc_cli/` split already made `compute_order`, `find_exit`, `calculate_pnl` and `calculate_indicators` pure and unit-tested (a test checks they do no I/O). Still open: `validate_agent_response` (comes with pydantic validation, M1.4) and `is_analysis_fresh` (comes with M1.7 / M2.1).
+  - Progress (2026-10-07): the `btc_cli/` split already made `compute_order`, `find_exit`, `calculate_pnl` and `calculate_indicators` pure and unit-tested (a test checks they do no I/O). `validate_agent_response` now exists as `agents.parse_reply` (M1.4). Still open: `is_analysis_fresh` (comes with M1.7 / M2.1).
 
 - [ ] **[P2] Use SQLite instead of JSON files before building reports** — Suspected (needed for Phase 4) — Effort: M
   - Where: ledger, history and footprint files
