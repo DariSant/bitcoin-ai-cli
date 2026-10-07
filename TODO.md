@@ -29,9 +29,9 @@ Sections 1–4 below are the original audit of 2026-10-04, kept for its evidence
 | Phase | Done | Open | Notes |
 |---|---|---|---|
 | 0 Foundations | 2 / 2 | 0 | Characterization tests and the `btc_cli/` split are on `main`. |
-| 1 Correctness | 1 / 20 | 19 | Record versioning is on `main`. Everything else changes trades or scoring, so it needs owner approval and `strategy_version` bumps (§2.4). |
-| 2 Robustness | 5 / 13 | 8 | Model-name fix, damaged files, atomic writes and the run lock are done (the last three are waiting in PRs). |
-| 3 Maintainability | 2 / 8 | 6 | `config.toml` and project-root paths are done (in PRs). The money logic is already partly separated by the split. |
+| 1 Correctness | 1 / 21 | 20 | Record versioning is on `main`. Everything else changes trades or scoring, so it needs owner approval and `strategy_version` bumps (§2.4). |
+| 2 Robustness | 5 / 14 | 9 | Model-name fix, damaged files, atomic writes and the run lock are done (the last three are waiting in PRs). |
+| 3 Maintainability | 2 / 9 | 7 | `config.toml` and project-root paths are done (in PRs). The money logic is already partly separated by the split. |
 | 4 Evaluation | 0 / 5 | 5 | Nothing yet. |
 | 5 Deployment | 0 / 9 | 9 | Starts after Phases 1–3. |
 
