@@ -31,6 +31,14 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 - **Delete leftover files** that won't be needed: `main.py` and `bitcoin_ai_cli.egg-info/`.
 - **Push to GitHub** once Phase 0 is finished.
 
+### Changed
+- **Settings moved into `config.toml`** (branch `refactor/config-toml`; `TODO.md` Phase 3 config item ticked). The values are unchanged, so there is no `strategy_version` bump. Tests, both `mock` commands and every snapshot give the same output as before.
+  - Sections: `[market]` (exchange, market type, candle counts), `[gemini]` (models), `[indicators]` (swing lookback, volume-profile bins, value-area share) and `[operator]` (risk $, ATR multipliers, 10-minute staleness, payload balance and risk %). All are marked `[frozen]` (§2.4).
+  - `btc_cli/config.py` checks types and ranges at start-up and stops with a one-line message, e.g. `Settings error in config.toml: [operator] risk_usd must be greater than 0, found -1.0`.
+  - Indicator lengths that appear in field names (`ema_34`, `rsi_13`, `vma_20`, `atr_14`) stay in code, so the names can't drift from the values.
+  - `tests/test_config.py` (16 tests) includes a freeze guard that pins the 0.1 values.
+  - `tests/test_architecture.py` now accepts `from btc_cli import config` in the pure modules, as `AGENTS.md` §10 allows. It used to flag the package name itself.
+
 ### Fixed
 - **Recorded files are now crash-safe, and damaged files are never overwritten** (branch `fix/safe-storage`; `TODO.md` Phase 2, three items ticked). These are bug fixes outside the strategy freeze: no trade decision changes, so no `strategy_version` bump.
   - Analyses, tickets, ledgers and history are written atomically (`storage.write_json_atomic`: temp file in the same folder, `fsync`, `os.replace`). The bytes written are identical to before, and every snapshot is unchanged.

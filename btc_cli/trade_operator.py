@@ -7,8 +7,7 @@ there is no minimum R:R, target distance limit or leverage cap.
 
 from dataclasses import dataclass
 
-# Fixed dollar risk per trade (the risk % and account balance fields are not used yet).
-RISK_USD = 100.0
+from btc_cli import config
 
 
 @dataclass(frozen=True)
@@ -36,10 +35,10 @@ def compute_order(verdict: str, current_price, atr_14, threat_level, magnet_targ
     """Operate's ticket math. None for a verdict that is neither GO LONG nor GO SHORT."""
     if verdict == "GO LONG":
         # Calculate baseline SL from structural threat + 0.5 ATR
-        proposed_stop_loss = threat_level - (0.5 * atr_14)
+        proposed_stop_loss = threat_level - (config.THREAT_BUFFER_ATR * atr_14)
 
-        # Calculate a pure volatility SL (1 full ATR below entry)
-        min_volatility_stop = current_price - atr_14
+        # Calculate a pure volatility SL (MIN_STOP_ATR full ATRs below entry)
+        min_volatility_stop = current_price - config.MIN_STOP_ATR * atr_14
 
         # The Stop Loss must be the LOWER of the two (safest distance)
         stop_loss = min(proposed_stop_loss, min_volatility_stop)
@@ -50,15 +49,15 @@ def compute_order(verdict: str, current_price, atr_14, threat_level, magnet_targ
             return OrderCalc(valid=False, stop_loss=stop_loss, take_profit=take_profit)
 
         risk_reward_ratio = (take_profit - current_price) / (current_price - stop_loss)
-        position_size_btc = RISK_USD / (current_price - stop_loss)
+        position_size_btc = config.RISK_USD / (current_price - stop_loss)
         position_size_usd = position_size_btc * current_price
 
     elif verdict == "GO SHORT":
         # Calculate baseline SL from structural threat + 0.5 ATR
-        proposed_stop_loss = threat_level + (0.5 * atr_14)
+        proposed_stop_loss = threat_level + (config.THREAT_BUFFER_ATR * atr_14)
 
-        # Calculate a pure volatility SL (1 full ATR above entry)
-        min_volatility_stop = current_price + atr_14
+        # Calculate a pure volatility SL (MIN_STOP_ATR full ATRs above entry)
+        min_volatility_stop = current_price + config.MIN_STOP_ATR * atr_14
 
         # The Stop Loss must be the HIGHER of the two (safest distance)
         stop_loss = max(proposed_stop_loss, min_volatility_stop)
@@ -69,7 +68,7 @@ def compute_order(verdict: str, current_price, atr_14, threat_level, magnet_targ
             return OrderCalc(valid=False, stop_loss=stop_loss, take_profit=take_profit)
 
         risk_reward_ratio = (current_price - take_profit) / (stop_loss - current_price)
-        position_size_btc = RISK_USD / (stop_loss - current_price)
+        position_size_btc = config.RISK_USD / (stop_loss - current_price)
         position_size_usd = position_size_btc * current_price
     else:
         return None
@@ -80,25 +79,25 @@ def compute_order(verdict: str, current_price, atr_14, threat_level, magnet_targ
 def compute_mock_order(verdict: str, current_price, atr_14, threat_level, magnet_target) -> OrderCalc:
     """The `mock` command's math: threat level -/+ 0.5 ATR, without operate's 1-ATR floor (known P1 issue)."""
     if verdict == "GO LONG":
-        stop_loss = threat_level - (0.5 * atr_14)
+        stop_loss = threat_level - (config.THREAT_BUFFER_ATR * atr_14)
         take_profit = magnet_target
 
         if stop_loss >= current_price or take_profit <= current_price:
             return OrderCalc(valid=False, stop_loss=stop_loss, take_profit=take_profit)
 
         risk_reward_ratio = (take_profit - current_price) / (current_price - stop_loss)
-        position_size_btc = RISK_USD / (current_price - stop_loss)
+        position_size_btc = config.RISK_USD / (current_price - stop_loss)
         position_size_usd = position_size_btc * current_price
 
     else:  # "GO SHORT"; the caller has already rejected anything else
-        stop_loss = threat_level + (0.5 * atr_14)
+        stop_loss = threat_level + (config.THREAT_BUFFER_ATR * atr_14)
         take_profit = magnet_target
 
         if stop_loss <= current_price or take_profit >= current_price:
             return OrderCalc(valid=False, stop_loss=stop_loss, take_profit=take_profit)
 
         risk_reward_ratio = (current_price - take_profit) / (stop_loss - current_price)
-        position_size_btc = RISK_USD / (stop_loss - current_price)
+        position_size_btc = config.RISK_USD / (stop_loss - current_price)
         position_size_usd = position_size_btc * current_price
 
     return OrderCalc(True, stop_loss, take_profit, risk_reward_ratio, position_size_usd)

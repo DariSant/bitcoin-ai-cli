@@ -3,12 +3,15 @@
 import pandas as pd
 import pandas_ta as ta
 
+from btc_cli import config
+
 
 def calculate_indicators(df: pd.DataFrame, timeframe: str) -> dict:
     """
     Calculate technical indicators (EMAs, RSIs, and RSI Delta) using pandas-ta,
     and return the latest row's values.
     """
+    # These lengths are part of the output field names (ema_34, rsi_13, vma_20, atr_14), so they are not settings.
     # Calculate EMAs
     df['EMA_34'] = ta.ema(df['close'], length=34)
     df['EMA_89'] = ta.ema(df['close'], length=89)
@@ -28,12 +31,12 @@ def calculate_indicators(df: pd.DataFrame, timeframe: str) -> dict:
     df['ATR_14'] = ta.atr(df['high'], df['low'], df['close'], length=14)
 
     # Calculate Structural Levels (Swing High / Swing Low)
-    df['swing_high'] = df['high'].rolling(20).max()
-    df['swing_low'] = df['low'].rolling(20).min()
+    df['swing_high'] = df['high'].rolling(config.SWING_LOOKBACK).max()
+    df['swing_low'] = df['low'].rolling(config.SWING_LOOKBACK).min()
 
     # Calculate Volume Profile Point of Control (POC) and Value Area
-    # Create 10 equal price bins based on the close column
-    bins = pd.cut(df['close'], bins=10)
+    # Create equal price bins based on the close column
+    bins = pd.cut(df['close'], bins=config.VOLUME_PROFILE_BINS)
     # Group by bins and sum the volume for each bin
     volume_by_bin = df.groupby(bins, observed=False)['volume'].sum()
     # Find the bin with the maximum volume
@@ -43,7 +46,7 @@ def calculate_indicators(df: pd.DataFrame, timeframe: str) -> dict:
 
     # Calculate Value Area (VAH / VAL) - 70% True Distribution
     total_volume = volume_by_bin.sum()
-    target_volume = total_volume * 0.70
+    target_volume = total_volume * config.VALUE_AREA_SHARE
 
     # Sort bins by volume descending
     sorted_bins = volume_by_bin.sort_values(ascending=False)
