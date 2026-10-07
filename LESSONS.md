@@ -29,6 +29,7 @@ Shared memory for every agent working on this repo (`AGENTS.md` §12). Newest fi
 - Source: planning the run lock on branch `fix/safe-storage`.
 
 ## 2026-10-07: `UPDATE_SNAPSHOTS=1` rewrites every snapshot, not just the changed ones
+- Update: `.gitattributes` (`eol=lf`, 2026-10-07) makes new checkouts LF, which ends this. An older working copy keeps its CRLF files until they are checked out again, so the rule below still applies there.
 - What: this checkout has `core.autocrlf=true`, so snapshots sit on disk with CRLF. The snapshot writer writes LF, so regenerating marks all 21 files as modified even when only 4 changed. Git itself shows no content diff for the rest.
 - Rule: after regenerating, run `git diff --stat` (it ignores the CRLF/LF difference) to see the real changes, then restore the untouched files with `git checkout -- <files>`. To prove a record change is additive, copy the snapshots aside first and compare key by key, normalising line endings.
 - Source: branch `feat/record-versioning`.

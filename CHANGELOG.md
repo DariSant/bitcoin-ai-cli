@@ -14,6 +14,9 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 
 ## 2026-10-07
 
+### Maintenance
+- **`.gitattributes`** (`* text=auto eol=lf`, branch `chore/gitattributes`; `TODO.md` line-ending item ticked, M1.8). Git now keeps LF line endings on Windows too, so the "LF will be replaced by CRLF" warnings stop and the Windows and Linux copies match. Every tracked file was already stored with LF, so no content changed.
+
 ### Research
 - **Tick data study** (`research/tick_data_study.py`, report `research/results/tick_data_2026-10-07.md`; M1.1 in `TODO.md`). This answers the §2.6 question that had to be settled before the precise trade-resolution design.
   - **Binance USDT-M:** individual trades are available at any age, through REST for the last 48 h and the public daily archive before that. They are complete: a whole day's trades match the candle volume exactly.

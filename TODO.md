@@ -49,7 +49,7 @@ Sections 1–4 below are the original audit of 2026-10-04, kept for its evidence
 5. **Binance retries** and one shared exchange object with a timeout (Phase 2, S). M2.1 extends this helper.
 6. **`mock` uses `compute_order`**, so it tests the real math (Phase 1, S). `mock` affects no trade, so no version bump is needed, but its snapshot changes on purpose.
 7. **`operate` picks the analysis by its own UTC timestamp** from the current month only, not by file modification time across every month (Phase 2 P2, S).
-8. **`.gitattributes`** with LF line endings (Phase 3 P2, S). This also ends the CRLF snapshot noise in `LESSONS.md`.
+8. ~~**`.gitattributes`**~~ Done 2026-10-07 (`chore/gitattributes`).
 
 **M2. Phase 1 strategy batch: warm-up versions 0.2 → 1.0 (each step needs owner approval of its plan, §2.4).** About 6–9 days. Each step is its own PR and bumps `strategy_version` by 0.1.
 1. **Market data:** USDT-M perpetual (`binanceusdm`, `BTC/USDT:USDT`) with OKX/Bybit as backup; closed candles only; enough history for EMA 144 and the 20-day RVOL baseline (about 1,000 × 4h and 2,000 × 15m, paginated); a live entry price at operate time with a `STALE_SETUP` re-check; each analysis traded at most once.
@@ -648,10 +648,11 @@ These answers (full text in section 4) are now built into the items below.
 
 - Split `app.py` into modules: **moved to Phase 0** (owner decision 2026-10-05).
 
-- [ ] **[P2] Line-ending warnings** — Confirmed — Effort: S
+- [x] **[P2] Line-ending warnings** — Confirmed — Effort: S
   - Where: `git diff` warns "LF will be replaced by CRLF" for `app.py`, `README.md`, `.gitignore`
   - Fix: add a `.gitattributes` file with `* text=auto eol=lf` so Windows and Linux copies match.
   - Done when: `git diff` shows no line-ending warnings.
+  - Status (2026-10-07): done on branch `chore/gitattributes`. Every tracked file was already stored with LF, so no file content changed.
 
 ### Phase 4 – Evaluation (metrics and reporting)
 
