@@ -1,7 +1,9 @@
 """Typer commands: argument parsing and terminal output only; the work happens in pipeline.py."""
 
+import contextlib
 import logging
 import os
+from collections.abc import Iterator
 
 import typer
 from google import genai
@@ -9,11 +11,30 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
-from btc_cli import agents, pipeline
+from btc_cli import agents, pipeline, storage
 from btc_cli.console import console
 
 # Create the Typer app instance
 app = typer.Typer(help="Bitcoin AI CLI Tool")
+
+# Exit code when another run holds the lock: distinct from errors (1) and usage mistakes (2),
+# so a scheduler can tell "skipped, try next time" from "failed".
+EXIT_RUN_IN_PROGRESS = 3
+
+
+@contextlib.contextmanager
+def _one_run_at_a_time(command: str) -> Iterator[None]:
+    """Run the block under the data folder's run lock, or exit 3 without doing anything."""
+    # RunLockedError can only come from taking the lock: the commands inside never take it again.
+    try:
+        with storage.run_lock(command):
+            yield
+    except storage.RunLockedError as e:
+        console.print(
+            f"[yellow]Another run is in progress ({e.holder}). Nothing was done.\n"
+            f"The lock is released automatically when that run ends. Lock file: {storage.display_path(e.path)}[/yellow]"
+        )
+        raise typer.Exit(code=EXIT_RUN_IN_PROGRESS)
 
 
 def _strategy_flags(def_flag: bool, greed_flag: bool) -> tuple[bool, bool]:
@@ -33,7 +54,8 @@ def status_command(symbol: str = typer.Argument("BTC/USDT")):
     Fetch MTF (4h, 15m) data for the given symbol and print the raw metrics.
     No AI analysis is executed.
     """
-    pipeline.run_status(symbol)
+    with _one_run_at_a_time("status"):
+        pipeline.run_status(symbol)
 
 @app.command("analyze")
 def analyze_command(
@@ -46,8 +68,9 @@ def analyze_command(
     Outputs the Lead Market Strategist thesis for selected strategies.
     """
     run_def, run_greed = _strategy_flags(def_flag, greed_flag)
-    if pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed):
-        raise typer.Exit(code=1)  # a damaged ledger or history blocked a strategy
+    with _one_run_at_a_time("analyze"):
+        if pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed):
+            raise typer.Exit(code=1)  # a damaged ledger or history blocked a strategy
 
 @app.command("operate")
 def operate_command(
@@ -59,8 +82,9 @@ def operate_command(
     Execute trading operations based on recent analysis.
     """
     run_def, run_greed = _strategy_flags(def_flag, greed_flag)
-    if pipeline.run_operate(symbol, run_def=run_def, run_greed=run_greed):
-        raise typer.Exit(code=1)  # a damaged ledger or history blocked a strategy
+    with _one_run_at_a_time("operate"):
+        if pipeline.run_operate(symbol, run_def=run_def, run_greed=run_greed):
+            raise typer.Exit(code=1)  # a damaged ledger or history blocked a strategy
 
 @app.command("mock")
 def mock_command(filename: str = typer.Argument(..., help="The mock payload file name (e.g. mock_long.json)")):
@@ -94,12 +118,14 @@ def auto_command(
     """
     run_def, run_greed = _strategy_flags(def_flag, greed_flag)
 
-    pipeline.run_status(symbol)
-    # Both steps run even if a damaged file blocks one strategy, so the healthy one keeps trading.
-    analyze_damaged = pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed)
-    operate_damaged = pipeline.run_operate(symbol, run_def=run_def, run_greed=run_greed)
-    if analyze_damaged or operate_damaged:
-        raise typer.Exit(code=1)
+    # One lock for all three steps, so no other run can slip in between them.
+    with _one_run_at_a_time("auto"):
+        pipeline.run_status(symbol)
+        # Both steps run even if a damaged file blocks one strategy, so the healthy one keeps trading.
+        analyze_damaged = pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed)
+        operate_damaged = pipeline.run_operate(symbol, run_def=run_def, run_greed=run_greed)
+        if analyze_damaged or operate_damaged:
+            raise typer.Exit(code=1)
 
 @app.command()
 def ask(question: str):

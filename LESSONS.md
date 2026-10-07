@@ -2,6 +2,11 @@
 
 Shared memory for every agent working on this repo (`AGENTS.md` §12). Newest first. Keep each lesson short: date, what happened, the rule, and the source.
 
+## 2026-10-07: a venv's `python.exe` on Windows is a launcher with its own PID
+- What: `subprocess.Popen([sys.executable, ...]).pid` under `uv` on Windows is the PID of the venv launcher, not of the interpreter that runs the code, so `os.getpid()` in the child differs.
+- Rule: when a test needs a child's real PID, have the child print `os.getpid()`.
+- Source: branch `fix/run-lock`, `tests/test_storage.py`.
+
 ## 2026-10-07: data paths are absolute now, so test isolation lives in `conftest.py`
 - What: before `fix/project-root-paths`, tests stayed away from real data only because they `chdir` into `tmp_path` and every path was relative. Now every path is absolute (`config.DATA_DIR`, `BASE_DIR`, `BETA_DIR`, `LOGS_DIR`, `ERROR_LOG`, `MOCK_DIR`).
 - Rule: any new path setting must also be pointed at `tmp_path` in the `isolated_env` fixture. The session guard `real_data_untouched` catches a miss, but only after the damage is done. Build new paths from these settings, never from `os.getcwd()` or a bare relative string.

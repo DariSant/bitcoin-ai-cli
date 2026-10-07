@@ -1,6 +1,9 @@
 """Unit tests for the record-versioning helpers in btc_cli.storage (AGENTS.md §6)."""
 
 import json
+import os
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -167,3 +170,79 @@ def test_read_ledger_distinguishes_missing_from_damaged(tmp_path):
     path.write_text('"just a string"', encoding="utf-8")
     with pytest.raises(storage.DamagedRecordError, match="expected a JSON dict"):
         storage.read_ledger(str(path))
+
+
+# --- Run lock (AGENTS.md §5) ---
+
+# A separate process that takes the lock for the data folder in argv[1], says "locked", then
+# either holds it until its stdin closes, or dies abruptly without releasing it ("crash").
+HOLDER = """
+import os, sys
+os.environ["BTC_CLI_DATA_DIR"] = sys.argv[1]
+from btc_cli import storage
+with storage.run_lock("holder process"):
+    print("locked", os.getpid(), flush=True)
+    if sys.argv[2] == "crash":
+        os._exit(9)
+    sys.stdin.readline()
+"""
+
+
+def start_holder(data_dir, mode: str) -> tuple[subprocess.Popen, int]:
+    """The process and its real PID (on Windows a venv's python.exe is a launcher with its own PID)."""
+    proc = subprocess.Popen(
+        [sys.executable, "-c", HOLDER, str(data_dir), mode],
+        cwd=config.PROJECT_ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+    )
+    word, pid = proc.stdout.readline().split()
+    assert word == "locked"
+    return proc, int(pid)
+
+
+@pytest.fixture
+def lock_in(tmp_path, monkeypatch):
+    """Point the run lock at tmp_path, where a holder process with BTC_CLI_DATA_DIR=tmp_path also looks."""
+    monkeypatch.setattr(config, "LOCK_FILE", tmp_path / "run.lock")
+    return tmp_path
+
+
+def test_the_lock_records_its_holder_and_the_file_stays(lock_in):
+    with storage.run_lock("status"):
+        pass
+
+    text = (lock_in / "run.lock").read_text(encoding="utf-8")
+    assert f"pid {os.getpid()}, command 'status', started " in text
+
+
+def test_a_second_lock_in_the_same_data_folder_is_refused(lock_in):
+    with storage.run_lock("first"):
+        with pytest.raises(storage.RunLockedError) as raised:
+            with storage.run_lock("second"):
+                pass
+    assert "command 'first'" in raised.value.holder
+    with storage.run_lock("third"):
+        pass
+
+
+def test_a_lock_held_by_another_process_is_refused_until_it_ends(lock_in):
+    holder, holder_pid = start_holder(lock_in, "hold")
+    try:
+        with pytest.raises(storage.RunLockedError) as raised:
+            with storage.run_lock("second"):
+                pass
+        assert f"pid {holder_pid}, command 'holder process'" in raised.value.holder
+    finally:
+        holder.stdin.close()
+        assert holder.wait(timeout=30) == 0
+
+    with storage.run_lock("after the holder ended"):
+        pass
+
+
+def test_a_crashed_holder_leaves_no_stale_lock(lock_in):
+    holder, _ = start_holder(lock_in, "crash")
+    assert holder.wait(timeout=30) == 9
+    assert (lock_in / "run.lock").exists()
+
+    with storage.run_lock("after the crash"):
+        pass

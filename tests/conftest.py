@@ -206,7 +206,7 @@ def gemini() -> FakeGemini:
 
 
 @pytest.fixture(autouse=True)
-def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clock: Clock, exchange: FakeExchange, gemini: FakeGemini) -> Iterator[Path]:
+def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tmp_path_factory: pytest.TempPathFactory, clock: Clock, exchange: FakeExchange, gemini: FakeGemini) -> Iterator[Path]:
     """Run every test in tmp_path with no network, a frozen clock and fake services."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-real")
@@ -231,6 +231,8 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clock: Clock, 
     monkeypatch.setattr(config, "LOGS_DIR", tmp_path / "logs")
     monkeypatch.setattr(config, "ERROR_LOG", tmp_path / "error.log")
     monkeypatch.setattr(config, "MOCK_DIR", tmp_path / "mock_json")
+    # The run lock is not data: keep it out of tmp_path so the file listings in snapshots are unchanged.
+    monkeypatch.setattr(config, "LOCK_FILE", tmp_path_factory.mktemp("lock") / "run.lock")
 
     yield tmp_path
 
