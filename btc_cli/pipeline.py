@@ -184,7 +184,7 @@ def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
         typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
-    client = genai.Client(api_key=api_key)
+    client = agents.make_client(api_key)
 
     for strategy in strategies_to_run:
         json_files = storage.analysis_files(strategy)
@@ -375,10 +375,14 @@ def run_mock(filename: str) -> None:
     render_execution_ticket(ticket_data, "MOCK")
 
 
-def _ai_failed(message: str) -> typer.Exit:
-    logging.error(message, exc_info=True)
-    typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
-    return typer.Exit(code=1)
+def _checked_reply(text: str, schema: type, agent: str, label: str) -> dict | None:
+    """The validated reply, or None after logging the raw text and telling the user (TODO.md "AI responses are not validated")."""
+    try:
+        return agents.parse_reply(text, schema, agent)
+    except agents.InvalidReplyError as e:
+        logging.error(f"Invalid reply from {e.agent} ({e.reason}). Raw text: {e.raw}")
+        console.print(f"[bold red]❌ {label} gave an invalid reply ({e.reason}). Details in error.log.[/bold red]")
+        return None
 
 
 def _route_to_beta_if_fallback(active_model: str | None) -> None:
@@ -387,26 +391,28 @@ def _route_to_beta_if_fallback(active_model: str | None) -> None:
         config.BASE_DIR = config.BETA_DIR
 
 
-def _run_manager(client: genai.Client, symbol: str, strategy: str, prompt: str, tech_report: dict, vol_report: dict, data_4h: dict, data_15m: dict, models_used: dict[str, str]) -> None:
+def _run_manager(client: genai.Client, router: agents.ModelRouter, symbol: str, strategy: str, prompt: str, tech_report: dict, vol_report: dict, data_4h: dict, data_15m: dict, models_used: dict[str, str]) -> bool:
     """Agent 3 for one strategy: ask, show the synthesis and save the analysis footprint.
 
     `models_used` holds the models that answered Agents 1 and 2; this strategy's Agent 3 is added to a copy.
+    Returns False if neither model answered or the reply was invalid: only this strategy is skipped,
+    the other still runs, and the command then exits 1.
     """
     label = strategy.capitalize()
     with console.status(f"[bold cyan]Agent 3 ({label} Manager) Thinking... (Model: {config.PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
-        manager_text, active_model = agents.query_llm_with_fallback(client, prompt, agents.Agent3ManagerSchema, f"agent_3_{strategy}", symbol)
+        manager_text, active_model = agents.query_llm_with_fallback(client, prompt, agents.Agent3ManagerSchema, f"agent_3_{strategy}", symbol, router)
 
     if manager_text is None:
         # Skip only this strategy; the other one may still run.
         console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
-        return
+        return False
 
     _route_to_beta_if_fallback(active_model)
 
-    try:
-        report = json.loads(manager_text)
-    except json.JSONDecodeError:
-        raise _ai_failed(f"Failed to parse Agent 3 ({label}) JSON output. Raw text: {manager_text}")
+    report = _checked_reply(manager_text, agents.Agent3ManagerSchema, f"agent_3_{strategy}", f"Agent 3 ({label} Manager)")
+    if report is None:
+        console.print(f"[yellow]Skipping the {label} strategy this cycle.[/yellow]")
+        return False
 
     title, border = ("[Defensive Strategy Synthesis]", "magenta") if strategy == "defensive" else ("[Greedy Strategy Synthesis]", "yellow")
     render_manager_report(report, title, border)
@@ -415,26 +421,28 @@ def _run_manager(client: genai.Client, symbol: str, strategy: str, prompt: str, 
     filepath = storage.log_execution("analyze", strategy, symbol, data_4h, data_15m, tech_report, vol_report, report, models_used=models_used)
     now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     console.print(f"[dim]💾 [{now_utc_str}] {label} Footprint saved to: {storage.display_path(filepath)}[/dim]")
+    return True
 
 
 def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True) -> bool:
     """
     Fetch MTF (4h, 15m) data for a given symbol and execute trading analysis via AI agents.
     Outputs the Lead Market Strategist thesis for active strategies.
-    Returns True if a damaged ledger or history blocked a strategy (the CLI then exits 1).
+    Returns True if the run failed in part (a damaged ledger or history blocked a strategy, or
+    neither AI model answered); the CLI then exits 1 so a scheduler notices.
     """
     def_position = check_open_positions(symbol, "defensive") if run_def else None
     greed_position = check_open_positions(symbol, "greedy") if run_greed else None
     skip_def = def_position is not Position.FREE
     skip_greed = greed_position is not Position.FREE
-    damaged = Position.DAMAGED in (def_position, greed_position)
+    failed = Position.DAMAGED in (def_position, greed_position)
 
     # If every requested strategy already has an open trade, there is nothing to analyze.
     # Stop here so we don't waste AI calls on Agents 1 and 2 whose reports would be thrown away.
     if skip_def and skip_greed:
-        if not damaged:
+        if not failed:
             console.print("[yellow]All requested strategies have open positions. Skipping AI analysis to save API calls.[/yellow]")
-        return damaged
+        return failed
 
     # Ensure the Gemini API key is loaded securely
     api_key = os.getenv("GEMINI_API_KEY")
@@ -457,54 +465,59 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
         raise typer.Exit(code=1)
 
     try:
-        client = genai.Client(api_key=api_key)
+        client = agents.make_client(api_key)
+        # One router per run: once the primary model fails, later agents go straight to the fallback.
+        router = agents.ModelRouter()
 
         tech_payload = agents.build_tech_payload(data_4h, data_15m)
         vol_payload = agents.build_vol_payload(data_4h, data_15m)
 
         # --- Agent 1: Technical Analyst ---
         with console.status(f"[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: {config.PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
-            agent1_text, active_model = agents.query_llm_with_fallback(client, agents.build_technical_prompt(tech_payload), agents.Agent1TechSchema, "agent_1_technical", symbol)
+            agent1_text, active_model = agents.query_llm_with_fallback(client, agents.build_technical_prompt(tech_payload), agents.Agent1TechSchema, "agent_1_technical", symbol, router)
 
         if agent1_text is None:
-            # Known P1 bug: the run still exits 0.
             console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
-            return damaged
+            return True
 
         _route_to_beta_if_fallback(active_model)
         models_used = {"agent_1_technical": active_model}
 
-        try:
-            tech_report = json.loads(agent1_text)
-        except json.JSONDecodeError:
-            raise _ai_failed(f"Failed to parse Agent 1 (Technical) JSON output. Raw text: {agent1_text}")
+        tech_report = _checked_reply(agent1_text, agents.Agent1TechSchema, "agent_1_technical", "Agent 1 (Technical Analyst)")
+        if tech_report is None:
+            # Both strategies need Agent 1, so the whole cycle is skipped; auto still runs operate.
+            console.print("[yellow]Skipping this cycle.[/yellow]")
+            return True
 
         render_technical_report(tech_report)
 
         # --- Agent 2: Liquidity/Volume Analyst ---
         with console.status(f"[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: {config.PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
-            agent2_text, active_model = agents.query_llm_with_fallback(client, agents.build_volume_prompt(vol_payload), agents.Agent2VolumeSchema, "agent_2_volume", symbol)
+            agent2_text, active_model = agents.query_llm_with_fallback(client, agents.build_volume_prompt(vol_payload), agents.Agent2VolumeSchema, "agent_2_volume", symbol, router)
 
         if agent2_text is None:
             console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
-            return damaged
+            return True
 
         _route_to_beta_if_fallback(active_model)
         models_used["agent_2_volume"] = active_model
 
-        try:
-            vol_report = json.loads(agent2_text)
-        except json.JSONDecodeError:
-            raise _ai_failed(f"Failed to parse Agent 2 (Volume) JSON output. Raw text: {agent2_text}")
+        vol_report = _checked_reply(agent2_text, agents.Agent2VolumeSchema, "agent_2_volume", "Agent 2 (Liquidity/Volume Analyst)")
+        if vol_report is None:
+            console.print("[yellow]Skipping this cycle.[/yellow]")
+            return True
 
         render_volume_report(vol_report)
 
         # --- Agent 3: Lead Market Strategist, one call per strategy ---
+        answered = True
         if not skip_def:
-            _run_manager(client, symbol, "defensive", agents.build_defensive_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m, models_used)
+            answered &= _run_manager(client, router, symbol, "defensive", agents.build_defensive_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m, models_used)
 
         if not skip_greed:
-            _run_manager(client, symbol, "greedy", agents.build_greedy_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m, models_used)
+            answered &= _run_manager(client, router, symbol, "greedy", agents.build_greedy_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m, models_used)
+        if not answered:
+            failed = True
 
     except typer.Exit:
         # Re-raise Typer's Exit exception so the CLI can exit gracefully
@@ -518,4 +531,4 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
         typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
         raise typer.Exit(code=1)
 
-    return damaged
+    return failed

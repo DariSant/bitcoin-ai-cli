@@ -1,0 +1,3 @@
+# Store and check out text files with LF on every OS, so Windows and the Linux server match.
+# Every tracked text file was already stored with LF (checked 2026-10-07); this stops CRLF conversion.
+* text=auto eol=lf

@@ -20,9 +20,15 @@ analysis_candles = 200         # candles fetched per timeframe (4h and 15m) for 
 resolution_candles = 100       # 15m candles fetched to resolve an open trade (100 = 25 hours)
 
 [gemini]  # [frozen]
-# The primary model is tried first; any error switches that call to the fallback model.
+# The primary model is tried first; see [gemini_requests] for when a call switches to the fallback.
 primary_model = "gemini-3.5-flash-lite"
 fallback_model = "gemini-2.5-flash"
+
+[gemini_requests]  # not frozen: how calls are retried, not what the models are asked
+# Every attempt, including retries and fallback calls, counts against the daily quota (AGENTS.md §5).
+timeout_seconds = 60           # one request; a hung call can't block a scheduled run
+max_attempts = 3               # per model per call: 1 to 3 (AGENTS.md §5 allows at most 3)
+max_retry_wait_seconds = 60    # a 429 asking to wait longer than this falls back at once (daily quota used up)
 
 [indicators]  # [frozen]
 # EMA 34/89/144, RSI 13/47, VMA 20 and ATR 14 are not settings: their lengths are part of the

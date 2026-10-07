@@ -2,6 +2,11 @@
 
 Shared memory for every agent working on this repo (`AGENTS.md` §12). Newest first. Keep each lesson short: date, what happened, the rule, and the source.
 
+## 2026-10-07: google-genai never retries by default, and passes timeouts through raw
+- What: `HttpOptions.retry_options` is `None` unless set, which means a single attempt. Timeouts and connection errors arrive as raw `httpx` exceptions (`httpx.TransportError`), not `errors.APIError`. A 429's wait is in `error.details` as `RetryInfo.retryDelay` (e.g. `'17s'`).
+- Rule: keep retries in one place, `agents._generate`. Don't also set the SDK's `retry_options`, or the attempts multiply against the daily quota. In tests, `FakeGemini.sleeps` records retry waits instead of sleeping.
+- Source: branch `fix/gemini-error-handling`.
+
 ## 2026-10-07: trade-history APIs differ per exchange, and ccxt hides it
 - What: ccxt's `fetch_trades(symbol, since=...)` silently **ignores `since`** on OKX and Bybit and returns the latest trades. Binance USDT-M refuses anything older than 48 h (`-4166`), whether you query by time or by trade id. Paging OKX by timestamp (`type=2`, "before ts") skips trades that share the boundary millisecond.
 - Rule: never trust `since` without checking the returned timestamps. For history, use Binance REST (48 h) plus the `data.binance.vision` daily archive, and OKX's raw `history-trades` endpoint paged by `tradeId`. Compare against candles by trade timestamp, and remember that Bybit candles open at the previous close and Binance candles can count a boundary trade in the next minute.
@@ -29,6 +34,7 @@ Shared memory for every agent working on this repo (`AGENTS.md` §12). Newest fi
 - Source: planning the run lock on branch `fix/safe-storage`.
 
 ## 2026-10-07: `UPDATE_SNAPSHOTS=1` rewrites every snapshot, not just the changed ones
+- Update: `.gitattributes` (`eol=lf`, 2026-10-07) makes new checkouts LF, which ends this. An older working copy keeps its CRLF files until they are checked out again, so the rule below still applies there.
 - What: this checkout has `core.autocrlf=true`, so snapshots sit on disk with CRLF. The snapshot writer writes LF, so regenerating marks all 21 files as modified even when only 4 changed. Git itself shows no content diff for the rest.
 - Rule: after regenerating, run `git diff --stat` (it ignores the CRLF/LF difference) to see the real changes, then restore the untouched files with `git checkout -- <files>`. To prove a record change is additive, copy the snapshots aside first and compare key by key, normalising line endings.
 - Source: branch `feat/record-versioning`.

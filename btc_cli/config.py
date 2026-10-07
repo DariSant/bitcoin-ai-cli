@@ -31,6 +31,9 @@ class Settings:
     resolution_candles: int
     primary_model: str
     fallback_model: str
+    gemini_timeout_seconds: int
+    gemini_max_attempts: int
+    gemini_max_retry_wait_seconds: int
     swing_lookback: int
     volume_profile_bins: int
     value_area_share: float
@@ -81,6 +84,9 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
         resolution_candles=_in_range(raw, "market", "resolution_candles", int, 0),
         primary_model=_value(raw, "gemini", "primary_model", str),
         fallback_model=_value(raw, "gemini", "fallback_model", str),
+        gemini_timeout_seconds=_in_range(raw, "gemini_requests", "timeout_seconds", int, 0),
+        gemini_max_attempts=_in_range(raw, "gemini_requests", "max_attempts", int, 1, 3, low_inclusive=True),
+        gemini_max_retry_wait_seconds=_in_range(raw, "gemini_requests", "max_retry_wait_seconds", int, 0, low_inclusive=True),
         swing_lookback=_in_range(raw, "indicators", "swing_lookback", int, 0),
         volume_profile_bins=_in_range(raw, "indicators", "volume_profile_bins", int, 0),
         value_area_share=_in_range(raw, "indicators", "value_area_share", float, 0, 1),
@@ -144,6 +150,11 @@ RESOLUTION_CANDLES = _settings.resolution_candles
 # [gemini]
 PRIMARY_MODEL = _settings.primary_model
 FALLBACK_MODEL = _settings.fallback_model
+
+# [gemini_requests]
+GEMINI_TIMEOUT_SECONDS = _settings.gemini_timeout_seconds
+GEMINI_MAX_ATTEMPTS = _settings.gemini_max_attempts
+GEMINI_MAX_RETRY_WAIT_SECONDS = _settings.gemini_max_retry_wait_seconds
 
 # [indicators]
 SWING_LOOKBACK = _settings.swing_lookback
