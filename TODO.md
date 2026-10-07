@@ -87,7 +87,7 @@ These answers (full text in section 4) are now built into the items below.
 
 ### Phase 0 – Foundations (before Phase 1; owner decision 2026-10-05)
 
-- [ ] **[P1] Characterization tests for today's behaviour** — Confirmed (only 1 test exists) — Effort: M
+- [x] **[P1] Characterization tests for today's behaviour** — Confirmed (only 1 test exists) — Effort: M
   - Where: new `tests/` folder; `pyproject.toml` (dev dependency)
   - Problem: the package split must not change behaviour, but nothing checks that. `mock` only covers the order math.
   - Fix:
@@ -100,12 +100,14 @@ These answers (full text in section 4) are now built into the items below.
     - Cover a long, a short and a `SIT ON HANDS` case. Write files only to `tmp_path`.
     - Known bugs are captured as they are; they are fixed later on their own branches.
   - Done when: `uv run pytest` passes offline on the current `app.py`, on its own `test/…` branch.
+  - Status (2026-10-07): done on branch `test/characterization-tests`: 43 offline tests, all passing. The tests drive the real CLI (`CliRunner`) rather than internal functions, so they can stay unchanged through the split. `test_app.py` already moved to `tests/`.
 
 - [ ] **[P1] Split `app.py` into the `btc_cli/` package** — Confirmed — Effort: L
   - Where: `app.py` (1,384 lines); target layout in `AGENTS.md` §10
   - Problem: one big file is getting hard to change safely and to test piece by piece.
-  - Fix: after the characterization tests, move the code into `btc_cli/` (`cli`, `config`, `data`, `indicators`, `agents`, `trade_operator`, `ledger`, `storage`, `logging_setup`). Keep `app.py` as a thin entry point so `uv run app.py <command>` still works, and move `test_app.py` into `tests/`. No behaviour change, so no `strategy_version` bump. (Replaces the old Phase 3 item "Split `app.py` into modules (later)".)
+  - Fix: after the characterization tests, move the code into `btc_cli/` (`cli`, `config`, `data`, `indicators`, `agents`, `trade_operator`, `ledger`, `storage`, `logging_setup`). Keep `app.py` as a thin entry point so `uv run app.py <command>` still works, (`test_app.py` is already in `tests/`). No behaviour change, so no `strategy_version` bump. (Replaces the old Phase 3 item "Split `app.py` into modules (later)".)
   - Done when: the characterization tests pass unchanged, and `uv run app.py mock mock_long.json` / `mock_short.json` give the same output before and after.
+  - Note: the fakes are wired in by `tests/conftest.py`, which patches `datetime`, `console` and `BASE_DIR` by name in `app` and any `btc_cli.*` module. If the split renames or restructures these, adjust `conftest.py` only. The test files and snapshots must not change.
 
 ### Phase 1 – Correctness (bugs that make paper results wrong or misleading)
 
@@ -323,7 +325,7 @@ These answers (full text in section 4) are now built into the items below.
 
 ### Phase 2 – Robustness (errors, retries, state safety, tests)
 
-- [ ] **[P0] Commit the model-name fix that is sitting uncommitted** — Confirmed — Effort: S
+- [x] **[P0] Commit the model-name fix that is sitting uncommitted** — Confirmed — Effort: S
   - Where: `git diff app.py` (adds `PRIMARY_MODEL = "gemini-3.5-flash-lite"` at `L37`)
   - Problem: `main` still calls `gemini-3.1-flash-lite-preview`. Google's deprecations page lists it as shut down on 2026-05-25. On `main`, every agent call fails over to the backup model, so every run lands in `output_beta/`. `gemini-3.5-flash-lite` is listed as a stable model (released 2026-07-21).
   - Fix: review and commit the working-copy changes (model constants, README, the "skip analysis when both positions are open" guard). Also decide what to do with the staged `venv/` deletions.
@@ -331,6 +333,7 @@ These answers (full text in section 4) are now built into the items below.
     - The GitHub login problem is fixed: this repo now signs in as `DariSant` (repo-only setting; see `CHANGELOG.md` → Fixed).
     - Remaining step: open the PR at <https://github.com/DariSant/bitcoin-ai-cli/pull/new/chore/model-update-readme-rewrite> and merge it.
   - Done when: the PR is merged and `main` names a live model.
+  - Status (2026-10-07): done. PR #28 is merged, and `main` uses `gemini-3.5-flash-lite` with `gemini-2.5-flash` as fallback (`app.py:L37-L38`).
 
 - [ ] **[P0] A damaged history file is silently replaced, losing all closed trades** — Confirmed — Effort: S
   - Where: `app.py:L286-L296` (bare `except: pass`)
@@ -451,6 +454,13 @@ These answers (full text in section 4) are now built into the items below.
     - closed-candle filtering
     - indicators on fewer than 144 candles (this already gives a friendly error, confirmed by the probe) and on low-priced symbols
   - Done when: `uv run pytest` runs offline with at least the cases above and all pass.
+  - Progress (2026-10-07): `pytest` is now a dev dependency, and the offline harness (fake exchange, fake Gemini, frozen clock) exists in `tests/conftest.py`. The characterization tests already cover today's resolution (SL, TP, entry candle, same candle, 100-candle lookback), the staleness check, damaged ledger and history files, and fallback routing. Each fix still needs its own tests for the *corrected* behaviour.
+
+- [ ] **[P2] `operate` scans every saved analysis and picks one by file modification time** — Confirmed (found 2026-10-07 while writing characterization tests) — Effort: S
+  - Where: `app.py:L549-L563` (`rglob("*.json")`, then sort by `st_mtime`)
+  - Problem: every `operate` run lists every analysis file ever written, across all months, so it gets slower as data grows on the small VM. It also chooses by the file's modification time, not by `metadata.timestamp`, so after a backup restore or a copy that changes mtimes, it can trade an older analysis. Pinned today by `test_operate_picks_the_analysis_by_file_mtime_not_by_name`.
+  - Fix: read only the current month's folder (or keep a small "latest analysis" pointer written atomically by `analyze`), and choose by the record's own UTC timestamp.
+  - Done when: a test with a newer-mtime but older-timestamp file picks the newer timestamp, and the scan reads a bounded number of files.
 
 - [ ] **[P2] `operate` needs a Gemini key it never uses** — Confirmed — Effort: S
   - Where: `app.py:L535-L540`

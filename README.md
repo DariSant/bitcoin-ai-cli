@@ -225,10 +225,17 @@ Analysis files are named like `20261002_143000_BTCUSDT_DEF_analysis.json` (date,
 
 ## Testing
 
-Unit tests use `pytest`. It isn't a project dependency yet, so this command borrows it just for the run, without adding it to the project:
+Tests use `pytest` (a dev dependency). They run fully offline: a fake exchange serves saved candles, a fake Gemini client returns canned replies, and every test works in its own temporary folder, so `output_alpha/`, `logs/` and your Gemini quota are never touched.
 
 ```powershell
-uv run --with pytest pytest
+uv run pytest
+```
+
+`tests/characterization/` records exactly what the tool does today: indicator values, the prompt sent to each agent, the analysis, ticket, ledger and history files, and the console output. The expected outputs live in `tests/characterization/snapshots/`. Some of them pin known bugs from `TODO.md` on purpose. A snapshot difference means behaviour changed. Only after that change is intended and approved, regenerate the snapshots and review the diff:
+
+```powershell
+$env:UPDATE_SNAPSHOTS = "1"; uv run pytest; Remove-Item Env:UPDATE_SNAPSHOTS
+git diff tests/characterization/snapshots
 ```
 
 To check the Operator's trade math without using the AI or internet:
@@ -247,7 +254,7 @@ A mock file must contain: `verdict`, `account_balance_usdt`, `risk_per_trade_per
 | File / Folder | Purpose |
 |---|---|
 | `app.py` | **The whole application.** Everything lives here for now, to keep it simple. |
-| `test_app.py` | Unit tests |
+| `tests/` | Offline tests (`uv run pytest`); `tests/characterization/` holds the behaviour snapshots, `tests/fixtures/` the saved candles |
 | `mock_json/` | Sample trade payloads for the `mock` command |
 | `list_models.py` | Helper that prints every Gemini model your API key can use |
 | `main.py` | Leftover starter file (not used) |

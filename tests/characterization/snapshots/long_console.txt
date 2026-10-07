@@ -1,0 +1,124 @@
+$ analyze
+╭─────────────────────────── [Technical Analysis Agent] ───────────────────────────╮
+│ General Analysis:                                                                │
+│ 4H and 15m EMA stacks CONFIRMED BULLISH. RSI_13 below RSI_47 on both timeframes. │
+│                                                                                  │
+│ Bias: BULLISH                                                                    │
+│                                                                                  │
+│ Trend State:                                                                     │
+│   • MACRO: BULLISH                                                               │
+│   • MICRO: BULLISH                                                               │
+│   • STATUS: ALIGNMENT                                                            │
+│                                                                                  │
+│ Momentum Divergence:                                                             │
+│   • RSI_FAST: 52.13                                                              │
+│   • RSI_SLOW: 60.94                                                              │
+│   • DELTA: -8.81                                                                 │
+│   • STATE: DECAY                                                                 │
+│                                                                                  │
+│ Key Level Interaction:                                                           │
+│   • THREAT: SUPPORT                                                              │
+│   • DISTANCE: 0.26%                                                              │
+│   • ACTION: TESTING                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────╯
+╭─────────────────────── [Volume & Liquidity Agent] ────────────────────────╮
+│ General Analysis:                                                         │
+│ Volume EXPANSION above VMA_20 with price INSIDE_VALUE on both timeframes. │
+│                                                                           │
+│ Bias: BULLISH                                                             │
+│                                                                           │
+│ Liquidity State:                                                          │
+│   • STATUS: INSIDE_VALUE                                                  │
+│   • ACTION: RANGE_ROTATION                                                │
+│                                                                           │
+│ Volume Momentum:                                                          │
+│   • VOL_VS_VMA: 1.12                                                      │
+│   • STATE: EXPANSION                                                      │
+│                                                                           │
+│ Magnet Target:                                                            │
+│   • TARGET: 67450.00                                                      │
+│   • DISTANCE: 0.71%                                                       │
+╰───────────────────────────────────────────────────────────────────────────╯
+╭────────────── [Defensive Strategy Synthesis] ──────────────╮
+│ Executive Summary:                                         │
+│ Defensive desk verdict GO LONG on the canned test reports. │
+│                                                            │
+│ Confluence Matrix:                                         │
+│   • STRUCTURE: ALIGN                                       │
+│   • VOLUME: SUPPORTIVE                                     │
+│   • ACTION: VALID                                          │
+│                                                            │
+│ Risk Vector:                                               │
+│   • THREAT_PROXIMITY: LOW                                  │
+│   • MAGNET_PULL: STRONG                                    │
+│   • OVERALL_RISK: ASYMMETRIC                               │
+│                                                            │
+│ Final Verdict: GO LONG                                     │
+╰────────────────────────────────────────────────────────────╯
+💾 [2026-10-01 12:00:00 UTC] Defensive Footprint saved to: 
+output_alpha/analyze/defensive/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_DEF_analysis.json
+╭────────────── [Greedy Strategy Synthesis] ──────────────╮
+│ Executive Summary:                                      │
+│ Greedy desk verdict GO LONG on the canned test reports. │
+│                                                         │
+│ Confluence Matrix:                                      │
+│   • STRUCTURE: ALIGN                                    │
+│   • VOLUME: SUPPORTIVE                                  │
+│   • ACTION: VALID                                       │
+│                                                         │
+│ Risk Vector:                                            │
+│   • THREAT_PROXIMITY: LOW                               │
+│   • MAGNET_PULL: STRONG                                 │
+│   • OVERALL_RISK: ASYMMETRIC                            │
+│                                                         │
+│ Final Verdict: GO LONG                                  │
+╰─────────────────────────────────────────────────────────╯
+💾 [2026-10-01 12:00:00 UTC] Greedy Footprint saved to: 
+output_alpha/analyze/greedy/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_GREED_analysis.json
+
+$ operate
+
+Proceeding to Agent 4 Execution for DEFENSIVE Strategy...
+╭─ [ DEFENSIVE Operator: Execution Ticket ] ─╮
+│ Verdict: GO LONG                           │
+│                                            │
+│ Opened: 2026-10-01 12:01:00 UTC            │
+│ Order Type: MARKET                         │
+│ Entry Price: $66,976.62                    │
+│ Stop Loss: $66,732.12                      │
+│ Take Profit: $67,450.00                    │
+│ Risk/Reward Ratio: 1.94                    │
+│ Position Size USD: $27,392.74              │
+╰────────────────────────────────────────────╯
+💾 [2026-10-01 12:01:00 UTC] Execution Footprint saved to: 
+output_alpha/operate/defensive/2026-10/<LOCAL_STAMP T+60s>_BTCUSDT_DEF_EXECUTION.json
+💾 [2026-10-01 12:01:00 UTC] Active Ledger updated: 
+output_alpha/defensive/BTC_USDT_paper_ledger.json
+
+Proceeding to Agent 4 Execution for GREEDY Strategy...
+╭─ [ GREEDY Operator: Execution Ticket ] ─╮
+│ Verdict: GO LONG                        │
+│                                         │
+│ Opened: 2026-10-01 12:01:00 UTC         │
+│ Order Type: MARKET                      │
+│ Entry Price: $66,976.62                 │
+│ Stop Loss: $66,732.12                   │
+│ Take Profit: $67,450.00                 │
+│ Risk/Reward Ratio: 1.94                 │
+│ Position Size USD: $27,392.74           │
+╰─────────────────────────────────────────╯
+💾 [2026-10-01 12:01:00 UTC] Execution Footprint saved to: 
+output_alpha/operate/greedy/2026-10/<LOCAL_STAMP T+60s>_BTCUSDT_GREED_EXECUTION.json
+💾 [2026-10-01 12:01:00 UTC] Active Ledger updated: output_alpha/greedy/BTC_USDT_paper_ledger.json
+
+$ operate (resolution)
+╭────── [Position Update] ──────╮
+│ Trade Closed (DEFENSIVE): WIN │
+│ PnL: $193.61                  │
+╰───────────────────────────────╯
+╭──── [Position Update] ─────╮
+│ Trade Closed (GREEDY): WIN │
+│ PnL: $193.61               │
+╰────────────────────────────╯
+No recent analysis has been run in the last 10 minutes for DEFENSIVE.
+No recent analysis has been run in the last 10 minutes for GREEDY.

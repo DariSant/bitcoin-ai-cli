@@ -1,0 +1,11 @@
+╭─ [ MOCK Operator: Execution Ticket ] ─╮
+│ Verdict: GO LONG                      │
+│                                       │
+│ Opened: 2026-10-01 12:00:00 UTC       │
+│ Order Type: MARKET                    │
+│ Entry Price: $70,000.00               │
+│ Stop Loss: $68,000.00                 │
+│ Take Profit: $74,000.00               │
+│ Risk/Reward Ratio: 2.00               │
+│ Position Size USD: $3,500.00          │
+╰───────────────────────────────────────╯

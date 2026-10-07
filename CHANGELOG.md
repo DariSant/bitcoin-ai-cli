@@ -12,6 +12,23 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 
 ---
 
+## 2026-10-07
+
+### Added
+- **Characterization tests (Phase 0, step 1)** on branch `test/characterization-tests`. There are 43 offline tests that record exactly what the tool does today, so the `app.py` split can prove it changed nothing.
+  - They drive the real CLI (`status`, `analyze`, `operate`, `auto`, `mock`, `commands`, `ask`) with a fake exchange serving saved candles (`tests/fixtures/`), a fake Gemini client with canned replies, and a frozen clock.
+  - They capture the indicator values, the exact prompt sent to each agent, the analysis, ticket, ledger and history files for a long, a short and a `SIT ON HANDS` case, trade resolution, model fallback routing, and the console output. Expected outputs are in `tests/characterization/snapshots/`.
+  - Known bugs are pinned as they behave today, not fixed: the entry candle is ignored, a candle touching both levels is a LOSS, only 25 h is checked, a damaged history file is overwritten, a total AI failure exits 0, one fallback moves the whole run to `output_beta`, and `mock` uses different stop math. These tests will change on purpose when each Phase 1/2 fix is approved.
+  - Safety: every test runs in a temporary folder with the network blocked, and `.env` is never loaded. `output_alpha/`, `logs/`, `error.log` and the Gemini quota are never touched (checked after the run).
+- `pytest` added as a dev dependency (`uv add --dev pytest`, approved 2026-10-04), plus pytest settings in `pyproject.toml`. Tests now run with `uv run pytest`.
+
+### Changed
+- `test_app.py` moved to `tests/test_app.py` (part of the approved §10 layout).
+- `README.md`: the Testing section and the file table now describe `tests/` and how to update snapshots.
+- `TODO.md`: ticked the characterization-tests item and the model-name item (done since PR #28 was merged). Added progress notes to the split and test-suite items. New P2 finding: `operate` scans every saved analysis and picks one by file modification time.
+
+---
+
 ## 2026-10-05
 
 ### Decisions (owner)

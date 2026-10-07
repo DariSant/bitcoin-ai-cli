@@ -1,0 +1,19 @@
+╭──────────┬───────────────────────────────────────────┬───────────────────────────────────────────╮
+│ Command  │ Description                               │ Variables / Strategies                    │
+├──────────┼───────────────────────────────────────────┼───────────────────────────────────────────┤
+│ status   │ Fetch MTF (4h, 15m) data for the given    │ [SYMBOL]                                  │
+│          │ symbol and print the raw metrics.         │                                           │
+│ analyze  │ Fetch MTF (4h, 15m) data and execute      │ [SYMBOL] | --def (Defensive) | --greed    │
+│          │ trading analysis via AI agents.           │ (Greedy)                                  │
+│ operate  │ Execute trading operations based on       │ [SYMBOL] | --def (Defensive) | --greed    │
+│          │ recent analysis.                          │ (Greedy)                                  │
+│ mock     │ Feed a mock JSON payload directly to      │ [filename]                                │
+│          │ Agent 4 (The Operator) for stress         │                                           │
+│          │ testing.                                  │                                           │
+│ auto     │ Execute the entire sequential pipeline:   │ [SYMBOL] | --def (Defensive) | --greed    │
+│          │ Status -> Analyze -> Operate.             │ (Greedy)                                  │
+│ ask      │ Ask the AI model a question and print the │ [question]                                │
+│          │ response.                                 │                                           │
+│ commands │ Displays a matrix of all executable       │ None                                      │
+│          │ commands and their variables.             │                                           │
+╰──────────┴───────────────────────────────────────────┴───────────────────────────────────────────╯

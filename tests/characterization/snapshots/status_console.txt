@@ -1,0 +1,28 @@
+
+📊 Multi-Timeframe Analysis (Binance: BTC/USDT)
+============================================================
+📈 4H Macro Trend Metrics
+Current Price : $70,067.76
+Volume / VMA (20) : 6515.76 / 5033.19
+Volume Profile POC: $65560.95
+EMAs (34,89,144) : 70673.8, 69514.29, 68090.71
+RSI (13,47)      : 44.59, 51.69
+RSI Delta        : -7.1
+Volatility (ATR 14): $937.34
+Value Area (VAL - VAH): $63717.84 - $71090.3 (INSIDE_VALUE)
+Mean Reversion: 2.9% from EMA | 6.87% from POC
+------------------------------------------------------------
+📉 15m Micro Trend Metrics
+Current Price : $66,976.62
+Volume / VMA (20) : 348.76 / 312.14
+Volume Profile POC: $64475.44
+EMAs (34,89,144) : 66825.9, 66228.69, 65805.42
+RSI (13,47)      : 52.13, 60.94
+RSI Delta        : -8.81
+Volatility (ATR 14): $140.55
+Value Area (VAL - VAH): $64311.58 - $67261.15 (INSIDE_VALUE)
+Mean Reversion: 1.78% from EMA | 3.88% from POC
+============================================================
+
+💾 [2026-10-01 12:00:00 UTC] Footprint saved to: 
+output_alpha/status/system/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_SYSTEM_analysis.json
