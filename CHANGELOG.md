@@ -14,6 +14,10 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 
 ## 2026-10-07
 
+### Maintenance
+- **`TODO.md` reviewed:** new section 0 "Status and next steps", with a progress table per phase, a milestone plan (M1 robustness groundwork → M2 Phase 1 batch, versions 0.2 to 1.0 → M3 ready for unattended running → M4 deploy → M5 evaluate), and the owner decisions needed. Progress notes were added to four partly done items.
+- **PR fix:** #35 (safe storage) had merged into its stacked base branch instead of `main`. It is re-opened as #39, and #36–#38 now target `main`. A lesson was recorded.
+
 ### Decisions (owner)
 - **Phase 1 starts with record versioning** (the "Version every record" item), following the plan proposed in the conversation.
   - **Version numbering:** `strategy_version` is a string. Legacy records = `"0.0"`, today's code = `"0.1"`. Each approved Phase 1 fix bumps `0.x`, and the first official version is `"1.0"`. Anything below `1.0` is warm-up data.

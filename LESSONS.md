@@ -14,7 +14,8 @@ Shared memory for every agent working on this repo (`AGENTS.md` §12). Newest fi
 
 ## 2026-10-07: merging is the owner's job, even when asked
 - What: the owner asked the agent to "merge everything into main". `gh pr merge` was then blocked by the Claude Code permission check ("merge without review"). `AGENTS.md` §9 also says the agent never merges.
-- Rule: push the branch, open the PR, and hand the owner the link to merge. Don't look for another way to merge. Stack follow-up work on a branch made from the unmerged one, and say so in its PR.
+- Rule: push the branch, open the PR, and hand the owner the link to merge. Don't look for another way to merge.
+- Follow-up work can be *branched* from an unmerged branch, but its PR must **target `main`**, never the unmerged branch. This repo doesn't delete merged branches, so GitHub doesn't retarget stacked PRs: #35 merged into `feat/record-versioning` after #34 had already merged, and its commits never reached `main` (re-landed as #39). A PR targeting `main` just shows the earlier commits until they merge.
 - Source: PR #34, conversation 2026-10-07.
 
 ## 2026-10-07: `os.kill(pid, 0)` is not a harmless "is it alive?" check on Windows
