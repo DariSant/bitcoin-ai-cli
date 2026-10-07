@@ -374,10 +374,15 @@ These answers (full text in section 4) are now built into the items below.
   - Done when: a test that simulates a crash between the two steps produces exactly one history entry.
   - Status (2026-10-07): done on branch `fix/safe-storage`. `storage.write_json_atomic` is used for analyses, tickets, ledgers and history, and the bytes written are identical to before. The temp file is `.<name>.<pid>.tmp` in the same folder. History de-duplicates on `trade_id`, or on symbol/entry time/verdict/entry price for legacy trades. The two append-only logs are unchanged.
 
-- [ ] **[P1] Nothing stops two runs overlapping** — Confirmed (no lock exists) — Effort: S
+- [x] **[P1] Nothing stops two runs overlapping** — Confirmed (no lock exists) — Effort: S
   - Where: whole `auto` / `operate` flow
   - Problem: a scheduled run plus a manual run, or a slow run overlapping the next scheduled one, can both read "no open trade" and both write a ledger.
   - Fix: create a lock file at start with `os.open(path, os.O_CREAT | os.O_EXCL)`. This uses only the standard library, needs no new package, and works on Windows and Linux. Store the process ID (PID) in it and treat the lock as stale if that process is gone. Release it in a `finally:` block.
+  - Status (2026-10-07): done on branch `fix/run-lock` with an OS file lock (`storage.run_lock`) on `run.lock` in the data folder, instead of `O_EXCL` plus a PID check.
+    - `status`, `analyze`, `operate` and `auto` hold it. `auto` holds one lock across all three steps, so nothing can slip in between them.
+    - A second run prints who holds the lock and exits 3 without doing anything.
+    - The OS releases the lock when the holder ends, even on a crash; a test kills a holder process to prove it. The file is never deleted.
+    - Not yet exercised: the Linux `fcntl.flock` branch. These tests ran on Windows only (`msvcrt.locking`); `uv run pytest` on the VM (Phase 5 ARM64 item) covers it.
   - Caution (found 2026-10-07): don't check "is that PID alive?" with `os.kill(pid, 0)`. On Windows, signal 0 is `CTRL_C_EVENT`, so the check would interrupt a process. Prefer an OS file lock (`fcntl.flock` on Linux, `msvcrt.locking` on Windows), held on an open lock file: the OS releases it when the process dies, so stale locks can't happen and the lock file is never deleted (`AGENTS.md` §5).
   - Done when: starting a second `auto` while one is running prints "another run is in progress" and exits.
 
@@ -660,7 +665,7 @@ These answers (full text in section 4) are now built into the items below.
 - [ ] **[P1] Python 3.13 and dependencies on ARM64 (aarch64)** — Confirmed (lockfile) / Suspected (runtime) — Effort: S
   - Where: `uv.lock`
   - Problem: none found in the lockfile. Every compiled dependency has a `cp313` Linux ARM64 wheel: `numpy 2.2.6`, `pandas 2.3.3`, `numba 0.61.2` (manylinux_2_28), `llvmlite 0.44.0` (manylinux_2_27/2_28). Those need glibc ≥ 2.28, which Ubuntu 22.04/24.04 and Oracle Linux 8/9 all have. `uv` downloads Python 3.13.12 for aarch64 by itself.
-  - Confirm by: running `uv sync --locked`, then `uv run pytest`, on the VM.
+  - Confirm by: running `uv sync --locked`, then `uv run pytest`, on the VM. This is also the first run of the run lock's Linux (`fcntl.flock`) code path; `tests/test_storage.py` covers it.
   - Fix: nothing needed now. If you choose the small AMD Micro VM instead (1 GB RAM), check memory use; `numba` makes `pandas-ta` heavy.
   - Done when: the tests pass on the VM.
 

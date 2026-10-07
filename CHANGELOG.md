@@ -32,6 +32,13 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 - **Push to GitHub** once Phase 0 is finished.
 
 ### Fixed
+- **Two runs can no longer overlap** (branch `fix/run-lock`; `TODO.md` Phase 2 item ticked). A scheduled run and a manual one could both read "no open trade" and both open a trade.
+  - `status`, `analyze`, `operate` and `auto` now hold an OS file lock on `run.lock` in the data folder. `auto` holds it across all three steps.
+  - A second run prints who holds the lock (PID, command, start time), does nothing, and exits with code **3**. That is separate from errors (1) and usage mistakes (2), so a scheduler can tell "skipped" from "failed".
+  - The OS releases the lock when the holder ends, even after a crash or kill, so stale locks can't happen and `run.lock` never needs deleting (`AGENTS.md` §5). The PID-check design in `TODO.md` was dropped, because `os.kill(pid, 0)` sends Ctrl+C on Windows.
+  - `mock`, `ask` and `commands` don't take the lock. `run.lock` is Git-ignored.
+  - Tests: 11 new (137 in total), including a real second process that holds the lock and one that is killed while holding it. Only the Windows lock code ran here; the Linux `fcntl` branch will first run in the test suite on the server.
+  - `README.md` now lists the exit codes.
 - **Paths no longer depend on the folder a command is started from** (branch `fix/project-root-paths`; `TODO.md` Phase 3 item ticked). Before this, a scheduler starting the program from another folder would have created new, empty ledgers there, and open trades would have looked "missing".
   - All paths are absolute, built from the project root. The new `[paths] data_dir` setting in `config.toml` (default `"."`, the project folder) holds `output_alpha/`, `output_beta/`, `logs/` and `error.log`, so with the default nothing moves. `mock_json/` is read from the project folder.
   - The environment variable `BTC_CLI_DATA_DIR` overrides the data folder. Development runs can now use a temporary folder and never touch the real dataset (`AGENTS.md` §2.7). `README.md` shows the commands.
