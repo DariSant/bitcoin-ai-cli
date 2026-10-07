@@ -493,7 +493,7 @@ These answers (full text in section 4) are now built into the items below.
 
 ### Phase 3 – Maintainability (refactor, config, logging, packaging)
 
-- [ ] **[P1] Move hardcoded values into one config file** — Confirmed — Effort: M
+- [x] **[P1] Move hardcoded values into one config file** — Confirmed — Effort: M
   - Where: `app.py:L32` (`BASE_DIR`), `L37-L38` (models), `L219`/`L354` (candle limits), `L377-L394` (indicator lengths), `L408` (70%), `L577` (600 s), `L616-L617`, `L630-L636`/`L675-L681` (0.5 ATR, 1 ATR), `L670`/`L715` (risk $100)
   - Problem: changing risk, thresholds or models means editing numbers scattered across a 1,400-line file, and `mock` has its own copies.
   - Fix: create a `config.toml`, read with Python's built-in `tomllib` (no new library). Put in it:
@@ -506,6 +506,10 @@ These answers (full text in section 4) are now built into the items below.
     - Keep secrets in `.env`.
     - Add a small check at start-up that rejects impossible values (e.g. risk % ≤ 0) with a friendly message.
   - Done when: no trading number is hardcoded in `app.py`, and `mock` reads the same config.
+  - Status (2026-10-07): done on branch `refactor/config-toml`, with values unchanged (no strategy bump). `config.toml` has `[market]`, `[gemini]`, `[indicators]` and `[operator]`, all marked `[frozen]`. `btc_cli/config.py` checks every value at start-up. `operate` and `mock` read the same Operator settings.
+    - Kept in code on purpose: the EMA 34/89/144, RSI 13/47, VMA 20 and ATR 14 lengths, because they are part of field names the prompts and records use; and `SCHEMA_VERSION` / `STRATEGY_VERSION`, which describe code and settings together.
+    - Not added yet: settings for features that don't exist (fees, leverage cap, min R:R, `[activity_gate]`, the Gemini quota). Each arrives with its own item, so `config.toml` never lists a value the code ignores. The data folder comes with the paths item below.
+    - `tests/test_config.py` pins the 0.1 values, so a silent edit fails a test.
 
 - [ ] **[P1] Use one logging setup with rotation and UTC times, not several separate log files** — Confirmed — Effort: S
   - Where: `app.py:L22-L26` (`error.log`, ERROR level only), `L103-L120` (`logs/system_health.log`), `L662-L665`/`L707-L710` (`operator_errors.log`)

@@ -143,6 +143,12 @@ uv run app.py commands
 
 To add a new library later, always use `uv add <library>` (for example `uv add numpy`).
 
+### Settings (`config.toml`)
+
+Every non-secret setting lives in `config.toml` in the project folder: the exchange and market, the AI models, candle counts, indicator settings, and the Operator's risk numbers. The program checks it at start-up and stops with a one-line message naming any missing or impossible value (for example `[operator] risk_usd must be greater than 0`).
+
+Sections marked `[frozen]` decide which trades are taken or how they are scored. Changing one splits the paper-trading data into a new strategy version, so it needs the owner's approval, a `STRATEGY_VERSION` bump in `btc_cli/config.py` and a `CHANGELOG.md` entry. A test (`tests/test_config.py`) fails on any change to remind you. Your API key never goes in `config.toml`; it stays in `.env`.
+
 ---
 
 ## Commands
@@ -273,7 +279,8 @@ A mock file must contain: `verdict`, `account_balance_usdt`, `risk_per_trade_per
 | File / Folder | Purpose |
 |---|---|
 | `app.py` | Entry point: loads `.env`, sets up logging and starts the CLI, so `uv run app.py <command>` works |
-| `btc_cli/` | The application package. `cli.py`: commands. `pipeline.py`: the status / analyze / operate / mock flows. `data.py`: exchange data. `indicators.py`: EMAs, RSI, ATR, volume profile. `agents.py`: Gemini prompts and model fallback. `trade_operator.py`: entry, stop, target and size math. `ledger.py`: WIN/LOSS and PnL. `storage.py`: every file the tool writes. `console.py`: terminal panels. `config.py`: settings. `logging_setup.py`: error log |
+| `config.toml` | Settings: exchange, models, candle counts, indicator and Operator values (no secrets) |
+| `btc_cli/` | The application package. `cli.py`: commands. `pipeline.py`: the status / analyze / operate / mock flows. `data.py`: exchange data. `indicators.py`: EMAs, RSI, ATR, volume profile. `agents.py`: Gemini prompts and model fallback. `trade_operator.py`: entry, stop, target and size math. `ledger.py`: WIN/LOSS and PnL. `storage.py`: every file the tool writes. `console.py`: terminal panels. `config.py`: loads and checks `config.toml`. `logging_setup.py`: error log |
 | `tests/` | Offline tests (`uv run pytest`); `tests/characterization/` holds the behaviour snapshots, `tests/fixtures/` the saved candles |
 | `mock_json/` | Sample trade payloads for the `mock` command |
 | `list_models.py` | Helper that prints every Gemini model your API key can use |
