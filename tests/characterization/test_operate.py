@@ -91,7 +91,11 @@ def test_same_analysis_can_be_traded_twice(run_cli, gemini, exchange, clock, tmp
     second = read_json(tmp_path.joinpath(*LEDGER))
     assert second["status"] == "OPEN"
     assert second["entry_timestamp"] == clock.epoch
-    assert {k: v for k, v in second.items() if k != "entry_timestamp"} == {k: v for k, v in first.items() if k != "entry_timestamp"}
+    entry_time_fields = ("entry_timestamp", "entry_time_utc", "trade_id")
+    assert {k: v for k, v in second.items() if k not in entry_time_fields} == {k: v for k, v in first.items() if k not in entry_time_fields}
+    # Since records are versioned, the duplicate is at least visible: two trades, one analysis.
+    assert second["trade_id"] != first["trade_id"]
+    assert second["analysis_run_id"] == first["analysis_run_id"]
 
 
 def test_operate_requires_gemini_key_it_never_uses(run_cli, gemini, monkeypatch, tmp_path):

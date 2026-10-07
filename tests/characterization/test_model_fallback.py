@@ -20,9 +20,13 @@ def test_primary_failure_uses_fallback_and_routes_the_run_to_output_beta(run_cli
     # One fallback anywhere moves the whole run, both strategies, to output_beta.
     written = [f for f in files_under(tmp_path) if f.startswith("output_")]
     assert [f.split("/")[0:3] for f in written] == [["output_beta", "analyze", "defensive"], ["output_beta", "analyze", "greedy"]]
-    # The record does not say which model produced it.
+    # Each record names the model that answered each agent call.
     record = read_json(tmp_path / written[0])
-    assert "model" not in json.dumps(record["metadata"])
+    assert record["metadata"]["models_used"] == {
+        "agent_1_technical": FALLBACK_MODEL,
+        "agent_2_volume": PRIMARY_MODEL,
+        "agent_3_defensive": PRIMARY_MODEL,
+    }
     health = (tmp_path / "logs" / "system_health.log").read_text(encoding="utf-8")
     snapshot("fallback_system_health.log", health)
     snapshot("fallback_console.txt", normalize_local_time(out.output, clock.epoch))
