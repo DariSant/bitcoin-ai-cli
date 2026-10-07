@@ -358,7 +358,8 @@ def run_mock(filename: str) -> None:
         raise ValueError(f"Invalid verdict '{verdict}'. Must be 'GO LONG' or 'GO SHORT'.")
 
     current_price = operator_payload["current_price"]
-    order = trade_operator.compute_mock_order(
+    # The same function operate uses, so mock checks the real math (including the 1-ATR stop floor).
+    order = trade_operator.compute_order(
         verdict,
         current_price,
         operator_payload["atr_14"],

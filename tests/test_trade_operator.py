@@ -2,7 +2,7 @@
 
 import pytest
 
-from btc_cli.trade_operator import OrderCalc, build_operator_report, compute_mock_order, compute_order, parse_magnet_target
+from btc_cli.trade_operator import OrderCalc, build_operator_report, compute_order, parse_magnet_target
 
 
 @pytest.mark.parametrize(
@@ -57,13 +57,11 @@ def test_unknown_verdict_gives_no_order():
     assert compute_order("SIT ON HANDS", 70000.0, 1000.0, 68500.0, 74000.0) is None
 
 
-def test_mock_math_has_no_one_atr_floor():
-    """Known P1 issue: mock and operate disagree whenever the 1-ATR floor applies."""
-    mock = compute_mock_order("GO LONG", 70000.0, 1000.0, 69800.0, 74000.0)
-    real = compute_order("GO LONG", 70000.0, 1000.0, 69800.0, 74000.0)
+def test_the_one_atr_floor_sets_the_stop_when_the_threat_is_close():
+    """The case where the old mock math disagreed with operate (fixed 2026-10-07: mock now uses compute_order)."""
+    order = compute_order("GO LONG", 70000.0, 1000.0, 69800.0, 74000.0)
 
-    assert mock.stop_loss == 69300.0
-    assert real.stop_loss == 69000.0
+    assert order.stop_loss == 69000.0
 
 
 def test_operator_report_rounds_to_cents():
