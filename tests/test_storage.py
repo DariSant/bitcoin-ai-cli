@@ -246,3 +246,82 @@ def test_a_crashed_holder_leaves_no_stale_lock(lock_in):
 
     with storage.run_lock("after the crash"):
         pass
+
+
+# --- Which analysis operate trades (TODO.md "operate scans every saved analysis") ---
+
+MAX_AGE = 600
+
+
+def local_to_utc(naive_local: datetime) -> datetime:
+    """The UTC instant of a naive local wall time (how the CLI names its files)."""
+    return naive_local.astimezone(timezone.utc)
+
+
+def write_analysis(at_utc: datetime, symbol: str = "BTCUSDT", recorded_utc: datetime | None = None, legacy: bool = False) -> Path:
+    """An analysis file named like the CLI names it (local time), recording `recorded_utc` (default: at_utc)."""
+    local = storage.local_now(at_utc)
+    folder = Path(config.BASE_DIR) / "analyze" / "defensive" / local.strftime("%Y-%m")
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{local.strftime('%Y%m%d_%H%M%S')}_{symbol}_DEF_analysis.json"
+    recorded = recorded_utc or at_utc
+    metadata = {"timestamp": storage.local_now(recorded).isoformat()}
+    if not legacy:
+        metadata["timestamp_utc"] = storage.utc_iso(recorded)
+    path.write_text(json.dumps({"metadata": metadata}), encoding="utf-8")
+    return path
+
+
+def test_an_analysis_from_just_before_midnight_on_the_last_day_of_the_month_is_found():
+    now = local_to_utc(datetime(2026, 11, 1, 0, 3))
+    written = write_analysis(now - timedelta(minutes=5))
+    assert written.parent.name == storage.local_now(now - timedelta(minutes=5)).strftime("%Y-%m")
+
+    assert storage.latest_analysis("defensive", "BTC/USDT", now, MAX_AGE) == written
+
+
+def test_only_files_named_inside_the_window_are_opened(monkeypatch):
+    now = local_to_utc(datetime(2026, 10, 20, 12, 0))
+    for day in range(1, 19):
+        write_analysis(local_to_utc(datetime(2026, 10, day, 9, 0)))
+    recent = [write_analysis(now - timedelta(minutes=m)) for m in (2, 4)]
+    opened = []
+    original = storage.read_analysis
+    monkeypatch.setattr(storage, "read_analysis", lambda p: opened.append(p) or original(p))
+
+    assert storage.latest_analysis("defensive", "BTC/USDT", now, MAX_AGE) == recent[0]
+    assert sorted(opened) == sorted(recent)
+
+
+def test_the_recorded_time_wins_over_the_file_name():
+    """E.g. the hour repeated when clocks go back: a later analysis can get an earlier-sorting name."""
+    now = local_to_utc(datetime(2026, 10, 20, 12, 0))
+    later_name_earlier_record = write_analysis(now - timedelta(minutes=2), recorded_utc=now - timedelta(minutes=8))
+    earlier_name_later_record = write_analysis(now - timedelta(minutes=6), recorded_utc=now - timedelta(minutes=1))
+    assert later_name_earlier_record.name > earlier_name_later_record.name
+
+    assert storage.latest_analysis("defensive", "BTC/USDT", now, MAX_AGE) == earlier_name_later_record
+
+
+def test_legacy_analyses_are_compared_by_their_local_timestamp():
+    now = local_to_utc(datetime(2026, 10, 20, 12, 0))
+    newer = write_analysis(now - timedelta(minutes=1), legacy=True)
+    write_analysis(now - timedelta(minutes=5), legacy=True)
+
+    assert storage.latest_analysis("defensive", "BTC/USDT", now, MAX_AGE) == newer
+
+
+def test_when_nothing_is_recent_the_newest_by_name_is_returned_for_the_stale_message():
+    now = local_to_utc(datetime(2026, 10, 20, 12, 0))
+    write_analysis(now - timedelta(hours=5))
+    newest = write_analysis(now - timedelta(hours=3))
+
+    assert storage.latest_analysis("defensive", "BTC/USDT", now, MAX_AGE) == newest
+
+
+def test_older_months_and_other_symbols_are_not_considered():
+    now = local_to_utc(datetime(2026, 10, 20, 12, 0))
+    write_analysis(local_to_utc(datetime(2026, 8, 31, 23, 59)))
+    write_analysis(now - timedelta(minutes=1), symbol="ETHUSDT")
+
+    assert storage.latest_analysis("defensive", "BTC/USDT", now, MAX_AGE) is None

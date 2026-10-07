@@ -198,14 +198,9 @@ def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
     client = agents.make_client(api_key)
 
     for strategy in strategies_to_run:
-        json_files = storage.analysis_files(strategy)
-        if not json_files:
-            console.print(f"[yellow]No recent analysis found for {strategy.upper()} strategy.[/yellow]")
-            continue
-
-        most_recent_file = storage.latest_analysis_for_symbol(json_files, symbol)
+        most_recent_file = storage.latest_analysis(strategy, symbol, datetime.now(timezone.utc), config.ANALYSIS_MAX_AGE_SECONDS)
         if most_recent_file is None:
-            console.print(f"[yellow]No recent analysis found for {symbol} on {strategy.upper()} strategy.[/yellow]")
+            console.print(f"[yellow]No recent analysis found for {strategy.upper()} strategy.[/yellow]")
             continue
 
         try:
