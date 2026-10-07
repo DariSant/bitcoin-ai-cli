@@ -127,7 +127,7 @@ These rules cannot be broken without explicit owner approval in the current conv
 
 ## 7. Testing
 
-* Run tests with `uv run pytest` (until `pytest` is a dev dependency: `uv run --with pytest pytest`).
+* Run tests with `uv run pytest`.
 * **Tests never touch the network.** Mock `ccxt` and `google-genai`.
 * **Tests never touch real data.** Write only to pytest's `tmp_path`, never to `output_alpha/`, `output_beta/` or `logs/`.
 * Tests are required for any change to: Operator math, stop/target validation, trade resolution (including entry-minute and same-minute tick cases), closed-candle filtering, the activity gate, ledger read/write, staleness checks, and model fallback routing.
@@ -165,6 +165,8 @@ config.toml             # settings (added with the Phase 3 config item; until th
 btc_cli/
 ├── __init__.py
 ├── cli.py              # typer commands and rich output only, no business logic
+├── pipeline.py         # status / analyze / operate / mock flows called by cli.py (approved 2026-10-07)
+├── console.py          # shared Rich console and panels, so no module imports cli (approved 2026-10-07)
 ├── config.py           # loads and validates settings: risk %, account size, thresholds, model names, paths
 ├── data.py             # ccxt fetching, retries, closed-candle handling, live price, 1m candles and trades for resolution
 ├── indicators.py       # EMAs, RSI, ATR, volume profile, swing levels
@@ -173,7 +175,7 @@ btc_cli/
 ├── ledger.py           # WIN/LOSS resolution and PnL (pure: takes candles and a trade, returns the result)
 ├── storage.py          # output paths, atomic JSON writes, versioned records, ledger/history read/write
 └── logging_setup.py    # logging configuration and rotation
-tests/                  # mirrors btc_cli/, one test file per module; test_app.py moves here
+tests/                  # mirrors btc_cli/, one test file per module; characterization/ holds the behaviour snapshots
 mock_json/              # unchanged: inputs for the `mock` command
 research/               # analysis scripts, not part of the CLI
 synthetic_data/         # generated test market data: plan, generators, scenarios; output/ is Git-ignored (approved 2026-10-07)
@@ -182,7 +184,7 @@ synthetic_data/         # generated test market data: plan, generators, scenario
 * Dependencies flow one way: `cli` → everything else. Every module may import `config`.
 * `indicators`, `trade_operator` and `ledger` stay pure: no network, no disk, no printing. They are fast and easy to test.
 * A `report.py` module comes with the Phase 4 `report` command.
-* Files outside the layout: `main.py` and `bitcoin_ai_cli.egg-info/` are slated for deletion (`TODO.md` cleanup item, needs approval). `list_models.py` is replaced by the planned `check-setup` command.
+* Files outside the layout: `list_models.py` is replaced by the planned `check-setup` command.
 * Study and analysis scripts that are not part of the CLI live in `research/` (approved by the owner on 2026-10-04).
 
 ## 11. Documentation & Definition of Done

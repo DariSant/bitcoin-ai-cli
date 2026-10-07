@@ -43,6 +43,7 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 - `synthetic_data/README.md` and `synthetic_data/PLAN.md`: the purpose, rules, data format and step-by-step plan for synthetic data. It is for testing the rules (resolution, costs, activity gate, a no-edge check), not for measuring the AI's edge.
 - `TODO.md`: new Phase 1 item "Synthetic market data for testing the rules". `README.md`: the folder is listed as planned.
 - `AGENTS.md` §10: `synthetic_data/` added to the target layout (owner approved 2026-10-07).
+- `AGENTS.md` (owner approved 2026-10-07): §10 layout now lists `pipeline.py` and `console.py`, the note about deleting `main.py` and the egg-info is removed (both are gone), the `tests/` line is updated, and §7 drops the `uv run --with pytest` fallback (`pytest` is a dev dependency).
 - **Characterization tests (Phase 0, step 1)** on branch `test/characterization-tests`. There are 43 offline tests that record exactly what the tool does today, so the `app.py` split can prove it changed nothing.
   - They drive the real CLI (`status`, `analyze`, `operate`, `auto`, `mock`, `commands`, `ask`) with a fake exchange serving saved candles (`tests/fixtures/`), a fake Gemini client with canned replies, and a frozen clock.
   - They capture the indicator values, the exact prompt sent to each agent, the analysis, ticket, ledger and history files for a long, a short and a `SIT ON HANDS` case, trade resolution, model fallback routing, and the console output. Expected outputs are in `tests/characterization/snapshots/`.
