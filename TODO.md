@@ -20,6 +20,72 @@ Line numbers refer to `app.py` unless another file is named.
 
 ---
 
+## 0. Status and next steps (reviewed 2026-10-07)
+
+Sections 1–4 below are the original audit of 2026-10-04, kept for its evidence. Their "What I ran" notes describe the code at that time (1 test, everything in `app.py`). This section is the current picture.
+
+### Where we are
+
+| Phase | Done | Open | Notes |
+|---|---|---|---|
+| 0 Foundations | 2 / 2 | 0 | Characterization tests and the `btc_cli/` split are on `main`. |
+| 1 Correctness | 1 / 21 | 20 | Record versioning is on `main`. Everything else changes trades or scoring, so it needs owner approval and `strategy_version` bumps (§2.4). |
+| 2 Robustness | 5 / 14 | 9 | Model-name fix, damaged files, atomic writes and the run lock are done (the last three are waiting in PRs). |
+| 3 Maintainability | 2 / 9 | 7 | `config.toml` and project-root paths are done (in PRs). The money logic is already partly separated by the split. |
+| 4 Evaluation | 0 / 5 | 5 | Nothing yet. |
+| 5 Deployment | 0 / 9 | 9 | Starts after Phases 1–3. |
+
+- **Tests:** 137 offline tests, including snapshots of today's behaviour, unit tests for the Operator, ledger, storage and config, a strategy-freeze guard on `config.toml`, and a guard that fails the run if a test touches real data.
+- **Waiting for the owner to merge**, in this order: #39 (safe storage; re-lands #35, which merged into a dead branch), #36 (`config.toml`), #37 (paths), #38 (run lock). All four target `main`.
+- **No data is being collected yet.** `output_alpha/` holds 7 files from 2026-10-02 (legacy, warm-up). So `strategy_version` bumps are cheap until deployment, but every rule that should apply from day one of collection must be in place by `1.0`.
+
+### Plan
+
+**M1. Robustness groundwork (no trade changes, no version bump; the agent can do these without asking).** About 2 days.
+1. **Tick-data study** (`research/`, public data only). Check whether Binance USDT-M aggregated trades can be fetched for any past minute and how far back. Repeat for OKX and Bybit. §2.6 requires this before the resolution design (M2.2) can be planned.
+2. **Total AI failure exits non-zero**, including `ask` (Phase 2, S).
+3. **Gemini error handling:** timeout, retries for 429/5xx, no fallback on 400/401/403, both errors logged, and the backup used for the rest of the run once the primary fails (Phase 2, M).
+4. **Validate AI replies** with `pydantic` (approved): a bad reply skips only that strategy and is logged (Phase 2, M).
+5. **Binance retries** and one shared exchange object with a timeout (Phase 2, S). M2.1 extends this helper.
+6. **`mock` uses `compute_order`**, so it tests the real math (Phase 1, S). `mock` affects no trade, so no version bump is needed, but its snapshot changes on purpose.
+7. **`operate` picks the analysis by its own UTC timestamp** from the current month only, not by file modification time across every month (Phase 2 P2, S).
+8. **`.gitattributes`** with LF line endings (Phase 3 P2, S). This also ends the CRLF snapshot noise in `LESSONS.md`.
+
+**M2. Phase 1 strategy batch: warm-up versions 0.2 → 1.0 (each step needs owner approval of its plan, §2.4).** About 6–9 days. Each step is its own PR and bumps `strategy_version` by 0.1.
+1. **Market data:** USDT-M perpetual (`binanceusdm`, `BTC/USDT:USDT`) with OKX/Bybit as backup; closed candles only; enough history for EMA 144 and the 20-day RVOL baseline (about 1,000 × 4h and 2,000 × 15m, paginated); a live entry price at operate time with a `STALE_SETUP` re-check; each analysis traded at most once.
+2. **Trade resolution:** 1m candles from the entry minute, paginated to now; tick re-check for the entry minute and any minute that touches both levels; `UNRESOLVED` / `UNRESOLVED_DATA_GAP` instead of guesses; 24 h `TIME_EXIT`; `resolution_method` and the first crossing trade recorded. Built with synthetic-data plan steps 1–2 (scenarios with known answers). Also records MAE/MFE (Phase 4 item), because those can't be added to past trades later.
+3. **Costs and sizing:** 0.05 % fee, slippage, funding; `pnl_gross` / `fees` / `funding` / `pnl_net` / `r_multiple`; 1 % of current equity per strategy; leverage cap 3×.
+4. **Operator rules:** stop floor max(1 × 15m ATR, 0.5 × 4H ATR); target candidates computed in Python for both directions; R:R ≥ 1.5 after fees; target ≤ 3 × 4H ATR; cost ≤ 0.30R; one ledger per strategy, whatever model answered (ends the alpha/beta split).
+5. **Agents:** prompts use the real field names; Agent 3 gets the Python-computed stop, target and R:R for both directions as facts; the target is a number chosen from the candidates; the generation settings are decided and recorded (the consistency check costs about 20 Gemini calls: owner go-ahead).
+6. **Activity gate:** RVOL < 0.5, 15m ATR < 0.15 %, 4H ATR < 0.60 %, checked before any AI call.
+7. **Indicator accuracy:** a volume profile with ATR-sized bins spread over each candle's range; rounding only for display (fixes low-priced symbols).
+8. **Record every decision:** a structured record for every verdict and every rejection (reason, model, R:R), replacing the free-text `operator_errors.log` for new runs (owner decision 2026-10-07). Needed before collection so the report's funnel has data from day one.
+
+When all eight are merged, set `strategy_version = "1.0"`: the first official version.
+
+**M3. Ready for unattended running (mostly Phases 2, 3 and 5).** About 3–4 days.
+- `[gemini]` quota settings, a daily call budget, and a `check-setup` command (a new command needs approval).
+- Rotating `logs/app.log` with UTC times (a log format change needs approval).
+- Alerts (Telegram) and a heartbeat (healthchecks.io): the owner creates both accounts; decide whether to keep `requests` for this.
+- `deploy/`: systemd service and timers, a server env file, nightly backups, and a rebuild guide. Bounded disk use (a `latest.json` pointer, compressing old months).
+- Linux install steps in the README (and remove the personal path), UTC file names (a record-format change).
+
+**M4. Deploy and collect (owner, with exact commands from the agent).** Oracle sign-up in `eu-madrid-1`; the `curl` checks; `uv sync --locked` and `uv run pytest` on the VM (also the first run of the run lock's Linux code path); start the timer.
+
+**M5. Evaluate (Phase 4).** A `report` command (per strategy, per version, per model; R-based; sample-size warning). SQLite only if the report needs it; JSON plus atomic writes is enough until then.
+
+### Decisions needed from the owner
+
+1. **Merge** #39 → #36 → #37 → #38.
+2. **Approve the M2 order.** Each step's detailed plan still comes for approval before it is coded.
+3. **Review `synthetic_data/PLAN.md`.** Steps 1–2 are needed for M2.2.
+4. **Add a non-AI baseline strategy from day one?** Recommended: same Operator and rules, direction from a plain rule or a coin flip, no Gemini calls. It is the only fair way to tell whether the AI adds anything, and it must run over the same period as the AI strategies. This is a §2.4 change, so it would join the M2 batch.
+5. **Confirm the run schedule:** every 30 minutes, just after a candle closes. It is still marked "Proposed", and the schedule is under the strategy freeze.
+6. **Gemini consistency check** (about 20 calls) before M2.5.
+7. **Approvals for M3:** the `check-setup` command, the log format change, removing the unused Gemini key check from `operate`, and keeping or removing `requests`.
+
+---
+
 ## 1. Summary
 
 The project is a well-organised prototype: the pipeline runs, the CLI is pleasant, and the operator does the stop-loss and sizing math in Python. **The paper-trading results are not trustworthy yet**, though, because the code that decides whether a trade was a WIN or a LOSS has several holes, and costs are not modelled.
@@ -482,6 +548,7 @@ These answers (full text in section 4) are now built into the items below.
     - closed-candle filtering
     - indicators on fewer than 144 candles (this already gives a friendly error, confirmed by the probe) and on low-priced symbols
   - Done when: `uv run pytest` runs offline with at least the cases above and all pass.
+  - Progress (2026-10-07, later): 137 offline tests. Added since: unit tests for `trade_operator`, `ledger`, `storage` and `config`; atomic-write and crash cases; damaged ledger and history; the run lock (including a crashed holder); a strategy-freeze guard on `config.toml`; and a session guard that fails if real data changes. Still open: the cases that only exist once the Phase 1 fixes land (magnet validation, closed candles, R:R floor, leverage cap). Each fix brings its own tests, so this item closes with Phase 1.
   - Progress (2026-10-07): `pytest` is now a dev dependency, and the offline harness (fake exchange, fake Gemini, frozen clock) exists in `tests/conftest.py`. The characterization tests already cover today's resolution (SL, TP, entry candle, same candle, 100-candle lookback), the staleness check, damaged ledger and history files, and fallback routing. Each fix still needs its own tests for the *corrected* behaviour.
 
 - [ ] **[P2] `operate` scans every saved analysis and picks one by file modification time** — Confirmed (found 2026-10-07 while writing characterization tests) — Effort: S
@@ -526,6 +593,7 @@ These answers (full text in section 4) are now built into the items below.
     - `operator_errors.log` stamps UTC but analysis files use local time (e.g. `22:34:43` local vs `20:34:45 UTC` for the same run).
   - Fix: set up one `logging` configuration in code. Log at INFO level to `logs/app.log` with a `RotatingFileHandler` (e.g. 5 MB × 5 files) and timestamps converted to UTC. Keep the JSON-lines health log if useful, but through `logging`. Use `datetime.now(timezone.utc)` everywhere, including file names.
   - Done when: every run writes one INFO line on start and one on finish, all timestamps are UTC, and log files rotate.
+  - Progress (2026-10-07): `error.log` and `logs/` now live in the data folder, so they no longer depend on the current folder. Rotation, INFO level and UTC are still open.
 
 - [x] **[P1] All file paths depend on the folder the command is run from** — Confirmed — Effort: S
   - Where: `app.py:L23`, `L32`, `L104`, `L804`
@@ -542,6 +610,7 @@ These answers (full text in section 4) are now built into the items below.
   - Problem: the trade math is mixed in with file reading, printing and network calls, so it cannot be tested on its own, and the copies have already drifted apart (the mock bug above).
   - Fix: pull out small functions that only take inputs and return a result, with no file or network access: `compute_order`, `resolve_trade(candles, ledger)`, `compute_pnl`, `validate_agent_response`, `is_analysis_fresh`. The command functions just load data, call these, and save.
   - Done when: each of these functions has unit tests that run without network or disk.
+  - Progress (2026-10-07): the `btc_cli/` split already made `compute_order`, `find_exit`, `calculate_pnl` and `calculate_indicators` pure and unit-tested (a test checks they do no I/O). Still open: `validate_agent_response` (comes with pydantic validation, M1.4) and `is_analysis_fresh` (comes with M1.7 / M2.1).
 
 - [ ] **[P2] Use SQLite instead of JSON files before building reports** — Suspected (needed for Phase 4) — Effort: M
   - Where: ledger, history and footprint files
@@ -661,6 +730,7 @@ These answers (full text in section 4) are now built into the items below.
     - Use UTC in file names (`…Z`).
     - Pass `encoding="utf-8"` to every `open()`.
   - Done when: a fresh clone on Ubuntu installs and runs using only the README.
+  - Progress (2026-10-07): every `open()` now passes `encoding="utf-8"`, and paths are built from the project root. Still open: Linux install steps and the personal `cd C:\Users\dsant\…` path in the README, and UTC file names.
 
 - [ ] **[P1] Python 3.13 and dependencies on ARM64 (aarch64)** — Confirmed (lockfile) / Suspected (runtime) — Effort: S
   - Where: `uv.lock`
