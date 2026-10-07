@@ -6,6 +6,13 @@
 # STRATEGY_VERSION in btc_cli/config.py, and a CHANGELOG.md entry. Each version is analysed
 # separately, so an unannounced change silently splits the dataset.
 
+[paths]  # not frozen: where files go doesn't change any trade
+# Folder that holds output_alpha/, output_beta/, logs/ and error.log. A relative path starts
+# at the project folder, so it doesn't matter which folder a command is started from.
+# The environment variable BTC_CLI_DATA_DIR overrides it: development runs use a temporary
+# folder that way, so they never touch the real dataset (AGENTS.md §2.7).
+data_dir = "."
+
 [market]  # [frozen]
 exchange_id = "binance"        # ccxt exchange class; "binance" = Binance spot
 market_type = "spot"           # must match exchange_id; written into every record

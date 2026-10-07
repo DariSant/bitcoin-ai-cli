@@ -1,8 +1,8 @@
 """Output paths and every file the program writes: analyses, footprints, ledgers, history, logs.
 
+Every path is built from config.BASE_DIR / config.DATA_DIR, which are absolute (AGENTS.md §5).
 JSON records are written atomically, and a recorded file that can't be read is never
-overwritten (AGENTS.md §2.3, §5). Known remaining issues (TODO.md): paths are relative
-to the current folder and file names use naive local time.
+overwritten (AGENTS.md §2.3). Known remaining issue (TODO.md): file names use naive local time.
 """
 
 import json
@@ -88,6 +88,15 @@ def strategy_version_of(record: dict) -> str:
     return _version_field(record, "strategy_version", LEGACY_STRATEGY_VERSION)
 
 
+def display_path(path: str | os.PathLike) -> str:
+    """A path as shown to the user: relative to the data folder when inside it, e.g. output_alpha/defensive/..."""
+    path = pathlib.Path(path)
+    try:
+        return path.relative_to(config.DATA_DIR).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def local_now(now_utc: datetime) -> datetime:
     """The naive local wall time of the same instant, as `datetime.now()` gives it (file names, legacy fields)."""
     return now_utc.astimezone().replace(tzinfo=None)
@@ -95,7 +104,7 @@ def local_now(now_utc: datetime) -> datetime:
 
 # --- Analyses (and the status footprint) ---
 
-def log_execution(command_name: str, strategy: str, symbol: str, data_4h: dict, data_15m: dict, agent1_report: dict = None, agent2_report: dict = None, agent3_report: dict = None, models_used: dict[str, str] | None = None) -> str:
+def log_execution(command_name: str, strategy: str, symbol: str, data_4h: dict, data_15m: dict, agent1_report: dict = None, agent2_report: dict = None, agent3_report: dict = None, models_used: dict[str, str] | None = None) -> pathlib.Path:
     """
     Universally log execution state to a JSON footprint in BASE_DIR/.
     `models_used` maps each agent call to the model that answered it; None when no AI ran (status).
@@ -103,12 +112,12 @@ def log_execution(command_name: str, strategy: str, symbol: str, data_4h: dict, 
     # One instant for the file name, the legacy local `timestamp` and the UTC fields.
     now_utc = datetime.now(timezone.utc)
     now = local_now(now_utc)
-    directory_path = f"{config.BASE_DIR}/{command_name}/{strategy}/{now.strftime('%Y-%m')}/"
-    os.makedirs(directory_path, exist_ok=True)
+    directory = pathlib.Path(config.BASE_DIR) / command_name / strategy / now.strftime('%Y-%m')
+    directory.mkdir(parents=True, exist_ok=True)
 
     strategy_prefix = _strategy_prefix(strategy)
     filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{symbol.replace('/', '')}_{strategy_prefix}_analysis.json"
-    filepath = os.path.join(directory_path, filename)
+    filepath = directory / filename
 
     payload = {
         "metadata": {
@@ -142,7 +151,7 @@ def log_execution(command_name: str, strategy: str, symbol: str, data_4h: dict, 
 
 def analysis_files(strategy: str) -> list[pathlib.Path]:
     """Every saved analysis for a strategy, across all months (unbounded, see TODO.md)."""
-    analyze_dir = pathlib.Path(f"{config.BASE_DIR}/analyze/{strategy}")
+    analyze_dir = pathlib.Path(config.BASE_DIR) / "analyze" / strategy
     if not analyze_dir.exists():
         return []
     return list(analyze_dir.rglob("*.json"))
@@ -168,7 +177,7 @@ def read_analysis(path: pathlib.Path) -> dict:
 def analysis_link(path: pathlib.Path, analysis: dict) -> dict:
     """Fields that tie a ticket or trade to the analysis that opened it (None for legacy analyses)."""
     try:
-        relative = path.relative_to(config.BASE_DIR).as_posix()
+        relative = pathlib.Path(path).relative_to(config.BASE_DIR).as_posix()
     except ValueError:
         relative = path.as_posix()
     metadata = analysis.get("metadata", {})
@@ -181,18 +190,18 @@ def analysis_link(path: pathlib.Path, analysis: dict) -> dict:
 
 # --- Operator outputs ---
 
-def write_execution_footprint(now: datetime, now_utc: datetime, strategy: str, symbol: str, operator_payload: dict, operator_report: dict, source: dict) -> str:
+def write_execution_footprint(now: datetime, now_utc: datetime, strategy: str, symbol: str, operator_payload: dict, operator_report: dict, source: dict) -> pathlib.Path:
     """Save the operator's inputs and ticket under BASE_DIR/operate/; returns the path.
 
     `now` is the naive local time used in the file name, `now_utc` the same instant,
     and `source` links to the analysis (see `analysis_link`).
     """
-    directory_path = f"{config.BASE_DIR}/operate/{strategy}/{now.strftime('%Y-%m')}/"
-    os.makedirs(directory_path, exist_ok=True)
+    directory = pathlib.Path(config.BASE_DIR) / "operate" / strategy / now.strftime('%Y-%m')
+    directory.mkdir(parents=True, exist_ok=True)
 
     strategy_prefix = "DEF" if strategy == "defensive" else "GREED"
     filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{symbol.replace('/', '')}_{strategy_prefix}_EXECUTION.json"
-    filepath = os.path.join(directory_path, filename)
+    filepath = directory / filename
 
     execution_footprint = {
         "metadata": {
@@ -216,8 +225,8 @@ def write_execution_footprint(now: datetime, now_utc: datetime, strategy: str, s
 
 def append_operator_error(log_entry: str) -> None:
     """Record a rejected ticket in BASE_DIR/operator_errors.log."""
-    log_path = f"{config.BASE_DIR}/operator_errors.log"
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    log_path = pathlib.Path(config.BASE_DIR) / "operator_errors.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(log_entry)
 
@@ -225,20 +234,20 @@ def append_operator_error(log_entry: str) -> None:
 # --- Ledger and history ---
 
 def ensure_strategy_dir(strategy: str) -> None:
-    os.makedirs(f"{config.BASE_DIR}/{strategy}", exist_ok=True)
+    (pathlib.Path(config.BASE_DIR) / strategy).mkdir(parents=True, exist_ok=True)
 
 
-def ledger_path(strategy: str, symbol: str) -> str:
+def ledger_path(strategy: str, symbol: str) -> pathlib.Path:
     clean_symbol = symbol.replace("/", "_")
-    return f"{config.BASE_DIR}/{strategy}/{clean_symbol}_paper_ledger.json"
+    return pathlib.Path(config.BASE_DIR) / strategy / f"{clean_symbol}_paper_ledger.json"
 
 
-def history_path(strategy: str, symbol: str) -> str:
+def history_path(strategy: str, symbol: str) -> pathlib.Path:
     clean_symbol = symbol.replace("/", "_")
-    return f"{config.BASE_DIR}/{strategy}/{clean_symbol}_trade_history.json"
+    return pathlib.Path(config.BASE_DIR) / strategy / f"{clean_symbol}_trade_history.json"
 
 
-def _read_recorded_json(path: str, expected: type) -> dict | list:
+def _read_recorded_json(path: str | os.PathLike, expected: type) -> dict | list:
     """Parse a recorded file; raise DamagedRecordError if it isn't valid JSON of the expected type."""
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -250,14 +259,14 @@ def _read_recorded_json(path: str, expected: type) -> dict | list:
     return content
 
 
-def read_ledger(path: str) -> dict | None:
+def read_ledger(path: str | os.PathLike) -> dict | None:
     """The ledger, or None if there is none. A damaged ledger raises DamagedRecordError and is left untouched."""
     if not os.path.exists(path):
         return None
     return _read_recorded_json(path, dict)
 
 
-def write_ledger(path: str, ledger_entry: dict) -> None:
+def write_ledger(path: str | os.PathLike, ledger_entry: dict) -> None:
     write_json_atomic(path, ledger_entry)
 
 
@@ -268,7 +277,7 @@ def _trade_key(trade: dict) -> tuple:
     return ("legacy", trade.get("symbol"), trade.get("entry_timestamp"), trade.get("verdict"), trade.get("entry_price"))
 
 
-def move_to_history(ledger_file: str, history_file: str, closed_trade: dict) -> None:
+def move_to_history(ledger_file: str | os.PathLike, history_file: str | os.PathLike, closed_trade: dict) -> None:
     """Append the closed trade to history, then delete the ledger.
 
     A damaged history raises DamagedRecordError before anything is written, so the
@@ -287,9 +296,9 @@ def move_to_history(ledger_file: str, history_file: str, closed_trade: dict) -> 
 # --- Diagnostics ---
 
 def append_system_health(health_payload: dict) -> None:
-    """Append one JSON line to logs/system_health.log."""
-    log_dir = "logs"
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, "system_health.log")
+    """Append one JSON line to logs/system_health.log in the data folder."""
+    log_dir = pathlib.Path(config.LOGS_DIR)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "system_health.log"
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(health_payload) + "\n")

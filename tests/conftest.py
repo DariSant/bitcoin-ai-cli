@@ -165,6 +165,31 @@ def _block_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "create_connection", refuse)
 
 
+# --- Guard: the real dataset must not change while tests run (AGENTS.md §7) ---
+
+REAL_DATA = [REPO_ROOT / "output_alpha", REPO_ROOT / "output_beta", REPO_ROOT / "logs", REPO_ROOT / "error.log"]
+
+
+def _real_data_state() -> dict[str, tuple[int, int]]:
+    """Size and modification time of every real data file (only metadata is read, never content)."""
+    state = {}
+    for root in REAL_DATA:
+        files = [root] if root.is_file() else (p for p in root.rglob("*") if p.is_file())
+        for path in files:
+            info = path.stat()
+            state[path.relative_to(REPO_ROOT).as_posix()] = (info.st_size, info.st_mtime_ns)
+    return state
+
+
+@pytest.fixture(scope="session", autouse=True)
+def real_data_untouched() -> Iterator[None]:
+    before = _real_data_state()
+    yield
+    after = _real_data_state()
+    changed = sorted(k for k in before.keys() | after.keys() if before.get(k) != after.get(k))
+    assert not changed, f"Tests changed real data files: {changed}"
+
+
 @pytest.fixture
 def clock() -> Clock:
     return Clock()
@@ -198,8 +223,14 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clock: Clock, 
     # A fixed-width, colourless console that writes to whatever sys.stdout is (CliRunner's buffer).
     test_console = Console(width=100, color_system=None, force_terminal=False, legacy_windows=False)
     _patch_app_modules(monkeypatch, "console", lambda v: isinstance(v, Console), test_console)
-    # The fallback path rebinds the global BASE_DIR to "output_beta" (known bug); restore it after each test.
-    _patch_app_modules(monkeypatch, "BASE_DIR", lambda v: isinstance(v, str), "output_alpha")
+    # Every data path points into tmp_path. monkeypatch also restores BASE_DIR, which the
+    # fallback path rebinds to BETA_DIR (known bug).
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path / "output_alpha")
+    monkeypatch.setattr(config, "BETA_DIR", tmp_path / "output_beta")
+    monkeypatch.setattr(config, "LOGS_DIR", tmp_path / "logs")
+    monkeypatch.setattr(config, "ERROR_LOG", tmp_path / "error.log")
+    monkeypatch.setattr(config, "MOCK_DIR", tmp_path / "mock_json")
 
     yield tmp_path
 

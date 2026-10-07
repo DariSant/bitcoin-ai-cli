@@ -522,11 +522,15 @@ These answers (full text in section 4) are now built into the items below.
   - Fix: set up one `logging` configuration in code. Log at INFO level to `logs/app.log` with a `RotatingFileHandler` (e.g. 5 MB × 5 files) and timestamps converted to UTC. Keep the JSON-lines health log if useful, but through `logging`. Use `datetime.now(timezone.utc)` everywhere, including file names.
   - Done when: every run writes one INFO line on start and one on finish, all timestamps are UTC, and log files rotate.
 
-- [ ] **[P1] All file paths depend on the folder the command is run from** — Confirmed — Effort: S
+- [x] **[P1] All file paths depend on the folder the command is run from** — Confirmed — Effort: S
   - Where: `app.py:L23`, `L32`, `L104`, `L804`
   - Problem: on a server, a scheduler may start the process from a different folder. Ledgers and logs would then be created somewhere else, and open trades would look "missing".
   - Fix: `PROJECT_ROOT = pathlib.Path(__file__).resolve().parent`, and build every path from it (or from `DATA_DIR` in config). Use `pathlib` instead of building paths with f-strings.
   - Done when: running `uv run /full/path/app.py status` from another folder writes into the project's data folder.
+  - Status (2026-10-07): done on branch `fix/project-root-paths`. `config.PROJECT_ROOT` comes from `btc_cli/config.py`'s own location. The data folder is `[paths] data_dir` (default `"."` = the project folder, so nothing moves), overridable with the `BTC_CLI_DATA_DIR` environment variable for development runs (§2.7).
+    - `output_alpha/`, `output_beta/`, `logs/` and `error.log` all sit under the data folder, and `mock_json/` is read from the project folder.
+    - The console still shows paths relative to the data folder, so the output is unchanged.
+    - Tests: a command started from another folder writes only into the data folder. The test harness now also fails the run if any real data file changes.
 
 - [ ] **[P1] Keep the money logic separate from file and network code** — Confirmed — Effort: M
   - Where: `app.py:L186-L311` and `L525-L796` (long and short blocks are near-duplicates, `L628-L716`; the error-logging block is copied twice, `L641-L667` / `L686-L712`)

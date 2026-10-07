@@ -4,6 +4,7 @@ Always read a setting as `config.NAME` at call time, never `from btc_cli.config 
 tests rebind these names, and the output_beta fallback rebinds BASE_DIR.
 """
 
+import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,8 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_FILE = PROJECT_ROOT / "config.toml"
+# Overrides [paths] data_dir, e.g. a temporary folder for development runs (AGENTS.md §2.7).
+DATA_DIR_ENV = "BTC_CLI_DATA_DIR"
 
 
 class ConfigError(Exception):
@@ -21,6 +24,7 @@ class ConfigError(Exception):
 class Settings:
     """Every value in config.toml, checked."""
 
+    data_dir: str
     exchange_id: str
     market_type: str
     analysis_candles: int
@@ -70,6 +74,7 @@ def _in_range(raw: dict[str, Any], section: str, key: str, kind: type, low: floa
 def parse_settings(raw: dict[str, Any]) -> Settings:
     """Check parsed TOML and return the settings; raises ConfigError naming the bad value."""
     return Settings(
+        data_dir=_value(raw, "paths", "data_dir", str),
         exchange_id=_value(raw, "market", "exchange_id", str),
         market_type=_value(raw, "market", "market_type", str),
         analysis_candles=_in_range(raw, "market", "analysis_candles", int, 0),
@@ -86,6 +91,14 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
         account_balance_usdt=_in_range(raw, "operator", "account_balance_usdt", float, 0),
         risk_per_trade_percent=_in_range(raw, "operator", "risk_per_trade_percent", float, 0, 100),
     )
+
+
+def resolve_data_dir(setting: str, override: str | None) -> Path:
+    """The data folder as an absolute path: the override if set, else the setting; relative paths start at the project root."""
+    chosen = Path(override if override and override.strip() else setting).expanduser()
+    if not chosen.is_absolute():
+        chosen = PROJECT_ROOT / chosen
+    return chosen.resolve()
 
 
 def load_settings(path: Path = CONFIG_FILE) -> Settings:
@@ -106,10 +119,18 @@ except ConfigError as e:
     # Raised while the program starts: a one-line message instead of a traceback.
     raise SystemExit(f"Settings error in {CONFIG_FILE.name}: {e}") from e
 
-# Output root for recorded data. The analyze pipeline rebinds this to "output_beta"
-# for the rest of the process once any agent uses the fallback model (known P0 bug,
-# TODO.md "Two ledgers per strategy").
-BASE_DIR = "output_alpha"
+# [paths]: every path is absolute, built from the project root (AGENTS.md §5), never from
+# the folder the command was started in.
+DATA_DIR = resolve_data_dir(_settings.data_dir, os.environ.get(DATA_DIR_ENV))
+# Output root for recorded data. The analyze pipeline rebinds this to BETA_DIR for the rest
+# of the process once any agent uses the fallback model (known P0 bug, TODO.md "Two ledgers
+# per strategy").
+BASE_DIR = DATA_DIR / "output_alpha"
+BETA_DIR = DATA_DIR / "output_beta"
+LOGS_DIR = DATA_DIR / "logs"
+ERROR_LOG = DATA_DIR / "error.log"
+# Inputs for the `mock` command: part of the project, not data.
+MOCK_DIR = PROJECT_ROOT / "mock_json"
 
 # [market]: data.create_exchange() builds the exchange from EXCHANGE_ID, so the source
 # written into every record is the one actually used.

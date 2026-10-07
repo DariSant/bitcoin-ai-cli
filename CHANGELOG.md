@@ -31,6 +31,13 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 - **Delete leftover files** that won't be needed: `main.py` and `bitcoin_ai_cli.egg-info/`.
 - **Push to GitHub** once Phase 0 is finished.
 
+### Fixed
+- **Paths no longer depend on the folder a command is started from** (branch `fix/project-root-paths`; `TODO.md` Phase 3 item ticked). Before this, a scheduler starting the program from another folder would have created new, empty ledgers there, and open trades would have looked "missing".
+  - All paths are absolute, built from the project root. The new `[paths] data_dir` setting in `config.toml` (default `"."`, the project folder) holds `output_alpha/`, `output_beta/`, `logs/` and `error.log`, so with the default nothing moves. `mock_json/` is read from the project folder.
+  - The environment variable `BTC_CLI_DATA_DIR` overrides the data folder. Development runs can now use a temporary folder and never touch the real dataset (`AGENTS.md` §2.7). `README.md` shows the commands.
+  - Console output is unchanged: paths are still shown relative to the data folder.
+  - Tests: 7 new (126 in total). The test harness now points every data path into the test's temp folder, and a session-wide guard fails the run if any real data file (`output_alpha/`, `output_beta/`, `logs/`, `error.log`) changes. Only file sizes and times are read.
+
 ### Changed
 - **Settings moved into `config.toml`** (branch `refactor/config-toml`; `TODO.md` Phase 3 config item ticked). The values are unchanged, so there is no `strategy_version` bump. Tests, both `mock` commands and every snapshot give the same output as before.
   - Sections: `[market]` (exchange, market type, candle counts), `[gemini]` (models), `[indicators]` (swing lookback, volume-profile bins, value-area share) and `[operator]` (risk $, ATR multipliers, 10-minute staleness, payload balance and risk %). All are marked `[frozen]` (§2.4).

@@ -2,6 +2,11 @@
 
 Shared memory for every agent working on this repo (`AGENTS.md` §12). Newest first. Keep each lesson short: date, what happened, the rule, and the source.
 
+## 2026-10-07: data paths are absolute now, so test isolation lives in `conftest.py`
+- What: before `fix/project-root-paths`, tests stayed away from real data only because they `chdir` into `tmp_path` and every path was relative. Now every path is absolute (`config.DATA_DIR`, `BASE_DIR`, `BETA_DIR`, `LOGS_DIR`, `ERROR_LOG`, `MOCK_DIR`).
+- Rule: any new path setting must also be pointed at `tmp_path` in the `isolated_env` fixture. The session guard `real_data_untouched` catches a miss, but only after the damage is done. Build new paths from these settings, never from `os.getcwd()` or a bare relative string.
+- Source: branch `fix/project-root-paths`.
+
 ## 2026-10-07: merging is the owner's job, even when asked
 - What: the owner asked the agent to "merge everything into main". `gh pr merge` was then blocked by the Claude Code permission check ("merge without review"). `AGENTS.md` §9 also says the agent never merges.
 - Rule: push the branch, open the PR, and hand the owner the link to merge. Don't look for another way to merge. Stack follow-up work on a branch made from the unmerged one, and say so in its PR.
