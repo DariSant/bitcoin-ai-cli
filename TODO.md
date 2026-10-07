@@ -325,12 +325,13 @@ These answers (full text in section 4) are now built into the items below.
     - a gated run makes **no** Gemini calls and records the reason
     - the README explains the gate and the monthly re-check in plain words
 
-- [ ] **[P1] Synthetic market data for testing the rules** — Planned (owner request 2026-10-07; plan awaiting review) — Effort: M–L
+- [ ] **[P1] Synthetic market data for testing the rules** — Planned (owner request 2026-10-07; questions answered, plan awaiting review) — Effort: M–L
   - Where: new folder `synthetic_data/` (plan: [`synthetic_data/PLAN.md`](synthetic_data/PLAN.md), overview: [`synthetic_data/README.md`](synthetic_data/README.md))
   - Problem: the Phase 1 resolution, cost and gate fixes need price paths with known correct answers, and there is no way to check the rules for hidden bugs or look-ahead without spending AI calls.
   - Fix:
     - Reproducible, Bitcoin-like 1m candles (15m/4h built from them), ticks only where needed, and funding.
-    - Two generators: a block bootstrap of real public BTC history first, then a calibrated regime-switching model.
+    - Two generators: first a block bootstrap of 3 years of public BTC USDT-M perpetual history (`binanceusdm`, with funding), then a calibrated regime-switching model.
+    - Generated datasets go in `synthetic_data/output/`, ignored by Git.
     - Hand-made scenarios with expected outcomes for `tests/`.
     - A no-edge walk-forward check in `research/` with a rule-based stand-in verdict and no Gemini calls.
     - Never written to `output_alpha/`, and never counted as performance.

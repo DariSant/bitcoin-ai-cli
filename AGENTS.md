@@ -176,6 +176,7 @@ btc_cli/
 tests/                  # mirrors btc_cli/, one test file per module; test_app.py moves here
 mock_json/              # unchanged: inputs for the `mock` command
 research/               # analysis scripts, not part of the CLI
+synthetic_data/         # generated test market data: plan, generators, scenarios; output/ is Git-ignored (approved 2026-10-07)
 ```
 
 * Dependencies flow one way: `cli` → everything else. Every module may import `config`.

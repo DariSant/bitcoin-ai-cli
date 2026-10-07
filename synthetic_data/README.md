@@ -1,10 +1,10 @@
 # Synthetic market data
 
-> **Status: planned, not implemented.** This folder holds only the plan so far. The owner will review [PLAN.md](PLAN.md) before any code is written. Roadmap entry: `TODO.md`, Phase 1, "Synthetic market data for testing the rules".
+> **Status: planned, not implemented.** This folder holds only the plan so far. The owner answered the plan's open questions on 2026-10-07, and will review [PLAN.md](PLAN.md) as a whole before any code is written. Roadmap entry: `TODO.md`, Phase 1, "Synthetic market data for testing the rules".
 
 ## What this is for
 
-Generated, Bitcoin-like price data, used to test the **mechanics** of the strategy offline, with known correct answers:
+Generated, Bitcoin-like price data, made first by reshuffling 3 years of real BTC USDT-M perpetual history, used to test the **mechanics** of the strategy offline, with known correct answers:
 
 - **Trade resolution:** stop and target hit in the same minute, a hit inside the entry minute, missing minutes, trades held past 24 h.
 - **The Operator and cost model:** stop floor, minimum R:R, maximum target distance, fees, slippage, funding.

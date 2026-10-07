@@ -16,6 +16,11 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 
 ### Decisions (owner)
 - **Synthetic market data.** Create a `synthetic_data/` folder with an implementation plan and a README, to be reviewed later, and add the work to the roadmap. Nothing is implemented yet.
+  - Answers to the plan's questions:
+    - Shuffled real history (block bootstrap) is the first generator.
+    - Calibrate on 3 years of 1m data from the futures market (`binanceusdm`, with funding).
+    - Generated datasets go in `synthetic_data/output/`.
+  - Add `synthetic_data/` to the `AGENTS.md` §10 layout (approved edit, done).
 - **Two modules added to the `btc_cli/` layout:**
   - `pipeline.py` holds the status / analyze / operate / mock flows, so `cli.py` keeps only commands and display.
   - `console.py` holds the shared console and panels, so no module has to import the CLI.
@@ -37,6 +42,7 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 ### Added
 - `synthetic_data/README.md` and `synthetic_data/PLAN.md`: the purpose, rules, data format and step-by-step plan for synthetic data. It is for testing the rules (resolution, costs, activity gate, a no-edge check), not for measuring the AI's edge.
 - `TODO.md`: new Phase 1 item "Synthetic market data for testing the rules". `README.md`: the folder is listed as planned.
+- `AGENTS.md` §10: `synthetic_data/` added to the target layout (owner approved 2026-10-07).
 - **Characterization tests (Phase 0, step 1)** on branch `test/characterization-tests`. There are 43 offline tests that record exactly what the tool does today, so the `app.py` split can prove it changed nothing.
   - They drive the real CLI (`status`, `analyze`, `operate`, `auto`, `mock`, `commands`, `ask`) with a fake exchange serving saved candles (`tests/fixtures/`), a fake Gemini client with canned replies, and a frozen clock.
   - They capture the indicator values, the exact prompt sent to each agent, the analysis, ticket, ledger and history files for a long, a short and a `SIT ON HANDS` case, trade resolution, model fallback routing, and the console output. Expected outputs are in `tests/characterization/snapshots/`.

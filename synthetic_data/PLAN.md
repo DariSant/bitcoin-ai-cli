@@ -1,6 +1,6 @@
 # Implementation plan: synthetic market data
 
-**Status:** draft, written 2026-10-07, for owner review. Nothing here is approved or implemented yet.
+**Status:** draft, written 2026-10-07. The open questions were answered by the owner on 2026-10-07 (§8). The plan as a whole is still waiting for owner review, and nothing is implemented yet.
 **Roadmap:** `TODO.md`, Phase 1, "Synthetic market data for testing the rules".
 
 ## 1. Goal
@@ -33,7 +33,7 @@ No change to `btc_cli/` and no change to recorded data. No new dependency: `nump
 ## 3. Approach
 
 ### 3.1 Calibration (public data only)
-- Download 2–3 years of BTC 1m candles from the market chosen in Phase 1 (USDT-M perpetual, `binanceusdm`, with OKX or Bybit as backup), plus the funding history.
+- Download 3 years of BTC 1m candles from the Phase 1 futures market (USDT-M perpetual, `binanceusdm`, `BTC/USDT:USDT`), plus the funding history. Use OKX or Bybit only if Binance futures data is unreachable, and record which one was used.
 - Use `ccxt` public endpoints, paginated, with timeouts, retries and rate-limit pauses (`AGENTS.md` §5).
 - Cache the download in a Git-ignored folder, because it is about 1.5 M rows.
 - Measure and save:
@@ -88,7 +88,7 @@ No change to `btc_cli/` and no change to recorded data. No new dependency: `nump
 |---|---|---|---|
 | 1 | Output format, the 1m → 15m/4h builder, tick builder, `meta.json`; generator tests | nothing | S–M |
 | 2 | Hand-made `scenarios/` for the Phase 1 resolution cases, with `expected.json`; fake-exchange support | step 1; written alongside the Phase 1 1m/tick resolution item | M |
-| 3 | `calibrate.py` + cached public download | Phase 1 market decision (futures exchange) | M |
+| 3 | `calibrate.py` + cached public download (3 years, `binanceusdm`) | nothing (market decided 2026-10-07) | M |
 | 4 | Block-bootstrap generator + `validate.py` report | step 3 | M |
 | 5 | No-edge walk-forward script in `research/` | steps 4 and Phase 1 cost model, gate and resolution | M |
 | 6 | Calibrated-model generator + stress presets | step 3 | M |
@@ -125,10 +125,12 @@ Steps 1–2 are the most valuable and can start with Phase 1. Steps 3–6 can fo
 - Three years of 1m data: about 1.58 M candles, 20–30 MB gzipped, generated in seconds, about 75 MB of memory.
 - Three years at one decision per 30 min gives about 500–1,000 trades per strategy. That's enough to measure the average R to about ±0.05R.
 
-## 8. Open questions for the owner
+## 8. Owner decisions (2026-10-07)
 
-1. **Generator order:** block bootstrap first, then the calibrated model? (Recommended.)
-2. **History depth for calibration:** 3 years? (2 years is enough if the download is slow.)
-3. **Calibration market:** the Phase 1 futures market (`binanceusdm`), or spot until Phase 1 lands?
-4. **Folder:** keep generated datasets in `synthetic_data/output/` (Git-ignored), as planned here, or under `research/results/`?
-5. **AGENTS.md:** add `synthetic_data/` to the §10 layout. That needs your approval, because agents may not edit `AGENTS.md`.
+1. **Generator order:** shuffled real history (block bootstrap) first, then the calibrated model.
+2. **Calibration history:** 3 years of 1m data.
+3. **Calibration market:** futures, the Phase 1 USDT-M perpetual (`binanceusdm`, `BTC/USDT:USDT`), with funding history. The backup exchange (OKX or Bybit) is used only if Binance futures data is unreachable, and that is recorded in the parameter file.
+4. **Generated datasets:** `synthetic_data/output/`, ignored by Git.
+5. **Layout:** `synthetic_data/` is part of the `AGENTS.md` §10 layout.
+
+The plan itself is still to be reviewed by the owner before implementation starts.
