@@ -31,6 +31,16 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 - **Delete leftover files** that won't be needed: `main.py` and `bitcoin_ai_cli.egg-info/`.
 - **Push to GitHub** once Phase 0 is finished.
 
+### Fixed
+- **Recorded files are now crash-safe, and damaged files are never overwritten** (branch `fix/safe-storage`; `TODO.md` Phase 2, three items ticked). These are bug fixes outside the strategy freeze: no trade decision changes, so no `strategy_version` bump.
+  - Analyses, tickets, ledgers and history are written atomically (`storage.write_json_atomic`: temp file in the same folder, `fsync`, `os.replace`). The bytes written are identical to before, and every snapshot is unchanged.
+  - A damaged **history** file used to be silently replaced, losing all earlier closed trades. Now nothing is written, the file keeps its bytes, and the trade stays OPEN.
+  - A damaged **ledger** used to read as "no open trade", so a new trade could overwrite it. Now it is left untouched.
+  - In both cases the error goes to `error.log`, that strategy is blocked, the other strategy still runs, and `analyze`, `operate` and `auto` exit with code 1.
+  - A trade that is already in history (crash between "append to history" and "delete ledger") is not appended again. Trades are matched by `trade_id`, or by entry details for legacy trades.
+  - The `TODO.md` fix wording "rename the damaged file to `…corrupt-<time>.json`" was corrected: `AGENTS.md` §2.3 forbids renaming recorded files.
+  - Tests: 13 new (103 in total). The two characterization tests that pinned the old bugs now check the corrected behaviour.
+
 ### Changed
 - **Every record is now versioned and traceable** (`TODO.md` Phase 1, "Version every record") on branch `feat/record-versioning`. This is a record format change (`schema_version` 1). Trade decisions and resolution are unchanged, so `strategy_version` stays at its first value, `"0.1"` (warm-up).
   - Analysis and status records (`metadata`) now include `schema_version`, `strategy_version`, `exchange`, `market_type`, `timestamp_utc`, `strategy` and `run_id`. Analyses also include `models_used`, the model that answered **each** agent call, and `models_configured`. Before this, a record didn't say which model produced it.

@@ -1,8 +1,8 @@
 """Output paths and every file the program writes: analyses, footprints, ledgers, history, logs.
 
-Moved unchanged from app.py, including known Phase 2 issues (TODO.md): writes are
-not atomic, paths are relative to the current folder, file names use naive local
-time, and a damaged history file is silently replaced.
+JSON records are written atomically, and a recorded file that can't be read is never
+overwritten (AGENTS.md §2.3, §5). Known remaining issues (TODO.md): paths are relative
+to the current folder and file names use naive local time.
 """
 
 import json
@@ -15,6 +15,33 @@ from btc_cli import config
 # What readers assume for records written before versioning (AGENTS.md §6: legacy, warm-up).
 LEGACY_SCHEMA_VERSION = 0
 LEGACY_STRATEGY_VERSION = "0.0"
+
+
+class DamagedRecordError(Exception):
+    """A recorded file exists but can't be read. It is left untouched for the owner to inspect."""
+
+    def __init__(self, path: str | os.PathLike, reason: str) -> None:
+        super().__init__(f"{path}: {reason}")
+        self.path = str(path)
+        self.reason = reason
+
+
+def write_json_atomic(path: str | os.PathLike, data: dict | list) -> None:
+    """Write JSON so a crash leaves either the old file or the new one, never half of one.
+
+    The temp file sits in the same folder, because os.replace is only atomic within one file system.
+    """
+    target = pathlib.Path(path)
+    temp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    try:
+        with open(temp, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temp, target)
+    finally:
+        # Only left behind if the write or the replace failed.
+        temp.unlink(missing_ok=True)
 
 
 def _strategy_prefix(strategy: str) -> str:
@@ -108,8 +135,7 @@ def log_execution(command_name: str, strategy: str, symbol: str, data_4h: dict, 
     if agent2_report: payload["agent_2_volume"] = agent2_report
     if agent3_report: payload["agent_3_synthesis"] = agent3_report
 
-    with open(filepath, "w") as file:
-        json.dump(payload, file, indent=2)
+    write_json_atomic(filepath, payload)
 
     return filepath
 
@@ -135,7 +161,7 @@ def latest_analysis_for_symbol(json_files: list[pathlib.Path], symbol: str) -> p
 
 
 def read_analysis(path: pathlib.Path) -> dict:
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -183,8 +209,7 @@ def write_execution_footprint(now: datetime, now_utc: datetime, strategy: str, s
         "operator_execution": operator_report
     }
 
-    with open(filepath, "w") as file:
-        json.dump(execution_footprint, file, indent=2)
+    write_json_atomic(filepath, execution_footprint)
 
     return filepath
 
@@ -193,7 +218,7 @@ def append_operator_error(log_entry: str) -> None:
     """Record a rejected ticket in BASE_DIR/operator_errors.log."""
     log_path = f"{config.BASE_DIR}/operator_errors.log"
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    with open(log_path, "a") as f:
+    with open(log_path, "a", encoding="utf-8") as f:
         f.write(log_entry)
 
 
@@ -213,35 +238,47 @@ def history_path(strategy: str, symbol: str) -> str:
     return f"{config.BASE_DIR}/{strategy}/{clean_symbol}_trade_history.json"
 
 
+def _read_recorded_json(path: str, expected: type) -> dict | list:
+    """Parse a recorded file; raise DamagedRecordError if it isn't valid JSON of the expected type."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise DamagedRecordError(path, str(e)) from e
+    if not isinstance(content, expected):
+        raise DamagedRecordError(path, f"expected a JSON {expected.__name__}, found {type(content).__name__}")
+    return content
+
+
 def read_ledger(path: str) -> dict | None:
-    """The ledger, or None if it is missing or not valid JSON (known P0 bug: a damaged ledger reads as no trade)."""
+    """The ledger, or None if there is none. A damaged ledger raises DamagedRecordError and is left untouched."""
     if not os.path.exists(path):
         return None
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        return None
+    return _read_recorded_json(path, dict)
 
 
 def write_ledger(path: str, ledger_entry: dict) -> None:
-    with open(path, "w") as file:
-        json.dump(ledger_entry, file, indent=2)
+    write_json_atomic(path, ledger_entry)
+
+
+def _trade_key(trade: dict) -> tuple:
+    """Identity of a trade: its trade_id, or entry details for legacy trades written before trade_id existed."""
+    if trade.get("trade_id"):
+        return ("trade_id", trade["trade_id"])
+    return ("legacy", trade.get("symbol"), trade.get("entry_timestamp"), trade.get("verdict"), trade.get("entry_price"))
 
 
 def move_to_history(ledger_file: str, history_file: str, closed_trade: dict) -> None:
-    """Append the closed trade to history, then delete the ledger."""
-    history = []
-    if os.path.exists(history_file):
-        try:
-            with open(history_file, "r") as f:
-                history = json.load(f)
-        except:  # noqa: E722 — known P0 bug kept by the split: a damaged history is silently replaced
-            pass
+    """Append the closed trade to history, then delete the ledger.
 
-    history.append(closed_trade)
-    with open(history_file, "w") as f:
-        json.dump(history, f, indent=2)
+    A damaged history raises DamagedRecordError before anything is written, so the
+    trade stays OPEN in its ledger. If a crash left the trade in history but the
+    ledger in place, the trade is not appended a second time.
+    """
+    history = _read_recorded_json(history_file, list) if os.path.exists(history_file) else []
+
+    if not any(isinstance(t, dict) and _trade_key(t) == _trade_key(closed_trade) for t in history):
+        write_json_atomic(history_file, [*history, closed_trade])
 
     # Clear ledger
     os.remove(ledger_file)
@@ -254,5 +291,5 @@ def append_system_health(health_payload: dict) -> None:
     log_dir = "logs"
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, "system_health.log")
-    with open(log_path, "a") as f:
+    with open(log_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(health_payload) + "\n")
