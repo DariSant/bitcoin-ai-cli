@@ -69,7 +69,7 @@ def test_analysis_ticket_ledger_and_history_are_versioned_and_linked(run_cli, ge
 
 
 def test_models_used_names_the_model_for_each_agent_call(run_cli, gemini, tmp_path):
-    """Only Agent 2 falls back; the record must say so per call, not per run."""
+    """Agent 2's primary call fails; the record must name the model per call, not per run."""
     a1, a2, defensive, greedy = analysis_replies("BULLISH", LONG_MAGNET, "GO LONG", "GO LONG")
     gemini.script = [a1, RuntimeError("primary unavailable"), a2, defensive, greedy]
 
@@ -80,7 +80,7 @@ def test_models_used_names_the_model_for_each_agent_call(run_cli, gemini, tmp_pa
         assert metadata["models_used"] == {
             "agent_1_technical": PRIMARY_MODEL,
             "agent_2_volume": FALLBACK_MODEL,
-            f"agent_3_{strategy}": PRIMARY_MODEL,
+            f"agent_3_{strategy}": FALLBACK_MODEL,  # the primary already failed this run
         }
 
 
@@ -170,3 +170,26 @@ def test_the_folder_a_command_starts_in_does_not_matter(run_cli, monkeypatch, tm
 
     assert list(elsewhere.iterdir()) == []
     assert only(tmp_path, "output_alpha/status/system/*/*.json").is_file()
+
+
+def test_auto_still_resolves_open_trades_when_the_ai_is_down_then_exits_1(run_cli, gemini, exchange, clock, tmp_path):
+    """The AI failing must not stop operate from closing a trade that hit its target."""
+    gemini.script = analysis_replies("BULLISH", LONG_MAGNET, "GO LONG", None)
+    assert run_cli("analyze", "--def").exit_code == 0
+    clock.advance(60)
+    assert run_cli("operate", "--def").exit_code == 0
+    ledger = read_json(tmp_path / "output_alpha" / "defensive" / "BTC_USDT_paper_ledger.json")
+    # Keep the indicator history and add the next 15m candle, which reaches the target.
+    hit = [int((clock.epoch - 60 + 900) * 1000), 67000.0, ledger["take_profit"] + 1, ledger["entry_price"], 67000.0, 1.0]
+    exchange.candles["15m"] = exchange.candles["15m"] + [hit]
+    clock.advance(16 * 60)  # the analysis is now stale, so operate can't open a second trade from it
+    gemini.script = [RuntimeError("primary down"), RuntimeError("fallback down")]
+
+    out = run_cli("auto", "--def")
+
+    assert out.exit_code == 1, out.output
+    assert "Both models unreachable" in out.output
+    (closed,) = read_json(tmp_path / "output_alpha" / "defensive" / "BTC_USDT_trade_history.json")
+    assert closed["result"] == "WIN"
+    # operate still ran after the AI failure.
+    assert "No recent analysis has been run in the last 10 minutes for DEFENSIVE" in out.output
