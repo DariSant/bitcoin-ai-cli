@@ -48,7 +48,7 @@ Sections 1–4 below are the original audit of 2026-10-04, kept for its evidence
 4. ~~**Validate AI replies**~~ Done 2026-10-07 (`fix/validate-ai-replies`).
 5. ~~**Binance retries**~~ Done 2026-10-07 (`fix/binance-retries`). M2.1 reuses `data.with_retries` for paginated fetches.
 6. ~~**`mock` uses `compute_order`**~~ Done 2026-10-07 (`fix/mock-uses-operator-math`). The existing mock snapshots didn't change; the floor isn't the deciding value in those files.
-7. **`operate` picks the analysis by its own UTC timestamp** from the current month only, not by file modification time across every month (Phase 2 P2, S).
+7. ~~**`operate` picks the analysis by its recorded time**~~ Done 2026-10-07 (`fix/operate-picks-analysis-by-time`). **M1 is complete.**
 8. ~~**`.gitattributes`**~~ Done 2026-10-07 (`chore/gitattributes`).
 
 **M2. Phase 1 strategy batch: warm-up versions 0.2 → 1.0 (each step needs owner approval of its plan, §2.4).** About 6–9 days. Each step is its own PR and bumps `strategy_version` by 0.1.
@@ -577,11 +577,15 @@ These answers (full text in section 4) are now built into the items below.
   - Progress (2026-10-07, later): 137 offline tests. Added since: unit tests for `trade_operator`, `ledger`, `storage` and `config`; atomic-write and crash cases; damaged ledger and history; the run lock (including a crashed holder); a strategy-freeze guard on `config.toml`; and a session guard that fails if real data changes. Still open: the cases that only exist once the Phase 1 fixes land (magnet validation, closed candles, R:R floor, leverage cap). Each fix brings its own tests, so this item closes with Phase 1.
   - Progress (2026-10-07): `pytest` is now a dev dependency, and the offline harness (fake exchange, fake Gemini, frozen clock) exists in `tests/conftest.py`. The characterization tests already cover today's resolution (SL, TP, entry candle, same candle, 100-candle lookback), the staleness check, damaged ledger and history files, and fallback routing. Each fix still needs its own tests for the *corrected* behaviour.
 
-- [ ] **[P2] `operate` scans every saved analysis and picks one by file modification time** — Confirmed (found 2026-10-07 while writing characterization tests) — Effort: S
+- [x] **[P2] `operate` scans every saved analysis and picks one by file modification time** — Confirmed (found 2026-10-07 while writing characterization tests) — Effort: S
   - Where: `app.py:L549-L563` (`rglob("*.json")`, then sort by `st_mtime`)
   - Problem: every `operate` run lists every analysis file ever written, across all months, so it gets slower as data grows on the small VM. It also chooses by the file's modification time, not by `metadata.timestamp`, so after a backup restore or a copy that changes mtimes, it can trade an older analysis. Pinned today by `test_operate_picks_the_analysis_by_file_mtime_not_by_name`.
   - Fix: read only the current month's folder (or keep a small "latest analysis" pointer written atomically by `analyze`), and choose by the record's own UTC timestamp.
   - Done when: a test with a newer-mtime but older-timestamp file picks the newer timestamp, and the scan reads a bounded number of files.
+  - Status (2026-10-07): done on branch `fix/operate-picks-analysis-by-time` (`storage.latest_analysis`).
+    - Only the month folders the 10-minute window touches are listed (at most two, so an analysis from 23:58 on the last day of a month is still found).
+    - Only files named inside the window, plus an hour for clock changes, are opened. The newest by recorded time wins: `timestamp_utc`, or the local `timestamp` for legacy records.
+    - If nothing is that recent, the newest by name is returned, so `operate` still prints "not in the last 10 minutes". Modification times are never used.
 
 - [ ] **[P2] `operate` needs a Gemini key it never uses** — Confirmed — Effort: S
   - Where: `app.py:L535-L540`
@@ -782,6 +786,7 @@ These answers (full text in section 4) are now built into the items below.
 - [ ] **[P1] Limit disk growth** — Confirmed — Effort: S
   - Where: `app.py:L314-L346`, `L742-L763`; `L549` (`rglob` over every analysis file on each `operate`)
   - Problem: one `auto` run writes about 7.4 KB in 3 files. Every 15 minutes that is about 0.7 MB/day but **about 105,000 files a year**, and `operate` scans all of them on every run.
+  - Progress (2026-10-07): `operate` no longer scans every analysis; it reads at most two month folders and opens only recent files (`storage.latest_analysis`). File count and compression are still open.
   - Fix: keep a `latest.json` pointer per strategy so `operate` doesn't scan. Compress months older than 2 into a `.tar.gz`. Use `RotatingFileHandler` for logs. Moving to SQLite (Phase 3) also solves this.
   - Done when: the time for `operate` does not grow with history, and old months are compressed automatically.
 

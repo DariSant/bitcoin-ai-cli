@@ -15,6 +15,12 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 ## 2026-10-07
 
 ### Fixed
+- **`operate` picks the analysis by its recorded time, with bounded work** (branch `fix/operate-picks-analysis-by-time`; `TODO.md` Phase 2 P2 item ticked, M1.7; **M1 is now complete**). Before, every `operate` listed every analysis ever written, so it got slower every day on the small server. It also chose by file modification time, so after a backup restore or copy it could trade an older analysis.
+  - **Bounded:** at most two month folders are listed (the ones the 10-minute window touches, so a 23:58 analysis on the last day of a month is still found). Only files named inside the window, plus an hour for clock changes, are opened.
+  - **Choice:** the newest by recorded time (`timestamp_utc`, or the local `timestamp` for legacy records) wins.
+  - **Nothing recent:** the newest by name is returned, so the "not in the last 10 minutes" message is unchanged.
+  - **Messages:** one change. With no analysis in those folders, the message is always "No recent analysis found for <STRATEGY> strategy." The variant naming the symbol is gone.
+  - Normal runs pick the same analysis as before. Snapshots unchanged. 6 new tests (190 in total, passing under three time zones). The test that pinned the modification-time behaviour now checks the fix.
 - **`mock` now checks the real Operator math** (branch `fix/mock-uses-operator-math`; `TODO.md` Phase 1 item ticked, M1.6). It had its own copy of the stop rule without operate's 1-ATR floor, so it could show a ticket `operate` would never produce.
   - `mock` now calls `trade_operator.compute_order`, and the duplicate `compute_mock_order` is removed.
   - New `mock_json/mock_floor.json`, where the floor decides: SL 69,000, size $7,000. The old mock showed SL 69,400 and $11,667.
