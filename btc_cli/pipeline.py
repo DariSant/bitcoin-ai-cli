@@ -4,6 +4,7 @@ Moved from app.py without behaviour changes; known bugs are listed in TODO.md an
 pinned by tests/characterization/.
 """
 
+import enum
 import json
 import logging
 import os
@@ -27,12 +28,30 @@ from btc_cli.console import (
 from btc_cli.indicators import calculate_indicators
 
 
-def check_open_positions(symbol: str, strategy: str) -> bool:
+class Position(enum.Enum):
+    """What the pre-flight check found for one strategy."""
+
+    FREE = "free"  # no open trade: the strategy may trade
+    OPEN = "open"  # an open trade blocks new ones until it is resolved
+    DAMAGED = "damaged"  # a damaged ledger or history blocks new ones; the command exits 1
+
+
+def _block_on_damaged_record(strategy: str, kind: str, error: storage.DamagedRecordError) -> Position:
+    """Log and show a damaged recorded file, then block the strategy (AGENTS.md §2.3: keep the bytes, never overwrite)."""
+    logging.error(f"Damaged {kind} for {strategy}, left untouched: {error}", exc_info=error)
+    console.print(
+        f"[bold red]❌ The {kind} file for {strategy.upper()} can't be read and was left untouched: {error.path}\n"
+        f"New trades for {strategy.upper()} are blocked until it is repaired. Details in error.log.[/bold red]"
+    )
+    return Position.DAMAGED
+
+
+def check_open_positions(symbol: str, strategy: str) -> Position:
     """
     Pre-flight check for open positions. Reads BASE_DIR/{strategy}/{symbol}_paper_ledger.json.
     If OPEN, fetches recent 15m candles to see if TP/SL was hit.
-    If hit, logs to history and returns False (proceed). If not hit, returns True (skip).
-    If no open position, returns False (proceed).
+    If hit, logs to history and returns FREE (proceed). If not hit, returns OPEN (skip).
+    If no open position, returns FREE. A damaged ledger or history returns DAMAGED (skip).
     """
     # Ensure strategy directory exists
     storage.ensure_strategy_dir(strategy)
@@ -40,15 +59,18 @@ def check_open_positions(symbol: str, strategy: str) -> bool:
     ledger_path = storage.ledger_path(strategy, symbol)
     history_path = storage.history_path(strategy, symbol)
 
-    trade = storage.read_ledger(ledger_path)
+    try:
+        trade = storage.read_ledger(ledger_path)
+    except storage.DamagedRecordError as e:
+        return _block_on_damaged_record(strategy, "ledger", e)
     if trade is None:
-        return False
+        return Position.FREE
 
     if trade.get("status") != "OPEN":
-        return False
+        return Position.FREE
 
     if not trade.get("entry_timestamp"):
-        return False
+        return Position.FREE
 
     try:
         ohlcv = data.fetch_resolution_candles(symbol)
@@ -66,18 +88,22 @@ def check_open_positions(symbol: str, strategy: str) -> bool:
             "resolved_at_utc": storage.utc_iso(datetime.now(timezone.utc)),
             "resolved_by_strategy_version": config.STRATEGY_VERSION,
         }
-        storage.move_to_history(ledger_path, history_path, closed_trade)
+        try:
+            storage.move_to_history(ledger_path, history_path, closed_trade)
+        except storage.DamagedRecordError as e:
+            # Nothing was written: the trade stays OPEN and is resolved again once history is repaired.
+            return _block_on_damaged_record(strategy, "trade history", e)
 
         console.print(Panel(
             f"[bold]Trade Closed ({strategy.upper()}):[/bold] {exit_.result}\n[bold]PnL:[/bold] ${pnl_usd:,.2f}",
             title="[Position Update]", border_style="cyan", box=box.ROUNDED, expand=False
         ))
         # Allow pipeline to proceed
-        return False
+        return Position.FREE
 
     render_execution_ticket(trade, strategy)
     console.print(f"[yellow]Status: Active position detected for {strategy.upper()}. Execution halted until TP/SL resolution.[/yellow]")
-    return True
+    return Position.OPEN
 
 
 def _print_timeframe_metrics(title: str, d: dict) -> None:
@@ -143,15 +169,14 @@ def _reject_ticket(final_verdict: str, current_price, threat_level, magnet_targe
     storage.append_operator_error(log_entry)
 
 
-def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True) -> None:
+def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True) -> bool:
     """
     Execute trading operations based on recent analysis.
+    Returns True if a damaged ledger or history blocked a strategy (the CLI then exits 1).
     """
-    strategies_to_run = []
-    if run_def and not check_open_positions(symbol, "defensive"):
-        strategies_to_run.append("defensive")
-    if run_greed and not check_open_positions(symbol, "greedy"):
-        strategies_to_run.append("greedy")
+    positions = {s: check_open_positions(symbol, s) for s, wanted in (("defensive", run_def), ("greedy", run_greed)) if wanted}
+    strategies_to_run = [s for s, position in positions.items() if position is Position.FREE]
+    damaged = Position.DAMAGED in positions.values()
 
     # Known P2 issue: operate never calls Gemini but still requires the key and a client.
     api_key = os.getenv("GEMINI_API_KEY")
@@ -293,6 +318,8 @@ def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
             typer.secho(f"\n❌ Error: Could not read analysis file for {strategy}. Check error.log.\n", fg=typer.colors.RED, bold=True)
             continue
 
+    return damaged
+
 
 def run_mock(filename: str) -> None:
     """
@@ -390,19 +417,24 @@ def _run_manager(client: genai.Client, symbol: str, strategy: str, prompt: str, 
     console.print(f"[dim]💾 [{now_utc_str}] {label} Footprint saved to: {filepath}[/dim]")
 
 
-def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True) -> None:
+def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True) -> bool:
     """
     Fetch MTF (4h, 15m) data for a given symbol and execute trading analysis via AI agents.
     Outputs the Lead Market Strategist thesis for active strategies.
+    Returns True if a damaged ledger or history blocked a strategy (the CLI then exits 1).
     """
-    skip_def = check_open_positions(symbol, "defensive") if run_def else True
-    skip_greed = check_open_positions(symbol, "greedy") if run_greed else True
+    def_position = check_open_positions(symbol, "defensive") if run_def else None
+    greed_position = check_open_positions(symbol, "greedy") if run_greed else None
+    skip_def = def_position is not Position.FREE
+    skip_greed = greed_position is not Position.FREE
+    damaged = Position.DAMAGED in (def_position, greed_position)
 
     # If every requested strategy already has an open trade, there is nothing to analyze.
     # Stop here so we don't waste AI calls on Agents 1 and 2 whose reports would be thrown away.
     if skip_def and skip_greed:
-        console.print("[yellow]All requested strategies have open positions. Skipping AI analysis to save API calls.[/yellow]")
-        return
+        if not damaged:
+            console.print("[yellow]All requested strategies have open positions. Skipping AI analysis to save API calls.[/yellow]")
+        return damaged
 
     # Ensure the Gemini API key is loaded securely
     api_key = os.getenv("GEMINI_API_KEY")
@@ -437,7 +469,7 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
         if agent1_text is None:
             # Known P1 bug: the run still exits 0.
             console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
-            return
+            return damaged
 
         _route_to_beta_if_fallback(active_model)
         models_used = {"agent_1_technical": active_model}
@@ -455,7 +487,7 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
 
         if agent2_text is None:
             console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
-            return
+            return damaged
 
         _route_to_beta_if_fallback(active_model)
         models_used["agent_2_volume"] = active_model
@@ -485,3 +517,5 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
         logging.error("Unexpected error during AI analysis", exc_info=True)
         typer.secho("\n❌ Error: AI processing failed. Check error.log for details.\n", fg=typer.colors.RED, bold=True)
         raise typer.Exit(code=1)
+
+    return damaged

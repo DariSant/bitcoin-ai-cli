@@ -2,7 +2,8 @@
 
 Several of these pin known Phase 1/2 bugs (TODO.md) exactly as they behave today:
 the entry candle is skipped, a candle touching both levels is a LOSS, only the
-last 100 15m candles (25 h) are checked, and a damaged history file is replaced.
+last 100 15m candles (25 h) are checked. Damaged ledger and history files are kept
+untouched and block the strategy (fixed on branch fix/safe-storage).
 They will change on purpose when those bugs are fixed, with owner approval.
 """
 
@@ -145,30 +146,37 @@ def test_closed_trade_is_appended_to_existing_history(run_cli, exchange, tmp_pat
     assert history[0] == old_trade
 
 
-def test_unreadable_history_is_replaced_by_the_new_trade(run_cli, exchange, tmp_path):
-    """Known P0 bug: a damaged history file is silently overwritten, losing earlier trades."""
+@pytest.mark.parametrize("damaged", ["[{not valid json", '{"a JSON object": "not a list"}'], ids=["invalid-json", "not-a-list"])
+def test_unreadable_history_is_kept_and_the_trade_stays_open(damaged, run_cli, exchange, tmp_path):
+    """AGENTS.md §2.3: a damaged history keeps its bytes; nothing is written and the trade is not lost."""
     history_path(tmp_path).parent.mkdir(parents=True)
-    history_path(tmp_path).write_text("[{not valid json", encoding="utf-8")
-    write_ledger(tmp_path, "defensive", LONG)
+    history_path(tmp_path).write_text(damaged, encoding="utf-8")
+    ledger_file = write_ledger(tmp_path, "defensive", LONG)
+    ledger_before = ledger_file.read_bytes()
     exchange.candles["15m"] = [candle(NEXT_CANDLE, 67600.0, 66950.0)]
 
     out = run_cli("operate", "--def")
 
-    assert out.exit_code == 0, out.output
-    history = read_json(history_path(tmp_path))
-    assert len(history) == 1 and history[0]["result"] == "WIN"
+    assert out.exit_code == 1, out.output
+    assert history_path(tmp_path).read_text(encoding="utf-8") == damaged
+    assert ledger_file.read_bytes() == ledger_before
+    assert "trade history file for DEFENSIVE can't be read" in out.output
+    assert "New trades for DEFENSIVE are blocked" in out.output
+    assert not (tmp_path / "output_alpha" / "operate").exists()
 
 
-def test_unreadable_ledger_is_treated_as_no_open_trade(run_cli, exchange, tmp_path):
-    """Known P0 bug: a damaged ledger means "no open trade", so a new one could be opened over it."""
-    ledger_file = write_ledger(tmp_path, "defensive", "{not valid json")
+@pytest.mark.parametrize("damaged", ["{not valid json", "[1, 2]", ""], ids=["invalid-json", "not-an-object", "empty"])
+def test_unreadable_ledger_is_kept_and_blocks_the_strategy(damaged, run_cli, exchange, tmp_path):
+    """AGENTS.md §2.3: a damaged ledger keeps its bytes and is never treated as "no open trade"."""
+    ledger_file = write_ledger(tmp_path, "defensive", damaged)
 
     out = run_cli("operate", "--def")
 
-    assert out.exit_code == 0, out.output
+    assert out.exit_code == 1, out.output
     assert exchange.calls == []
-    assert ledger_file.read_text(encoding="utf-8") == "{not valid json"
-    assert "No recent analysis found for DEFENSIVE strategy." in out.output
+    assert ledger_file.read_text(encoding="utf-8") == damaged
+    assert "ledger file for DEFENSIVE can't be read" in out.output
+    assert "No recent analysis found" not in out.output
 
 
 @pytest.mark.parametrize("ledger", [{**LONG, "status": "CLOSED"}, {**LONG, "entry_timestamp": None}], ids=["not-open", "no-entry-time"])
