@@ -15,6 +15,18 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 ## 2026-10-07
 
 ### Fixed
+- **Gemini calls now have a timeout, sensible retries and a stricter fallback** (branch `fix/gemini-error-handling`; `TODO.md` Phase 2 item ticked, M1.3). Before, any error switched straight to the backup model with no retry and no timeout. A bad API key wasted a call on the backup, and the backup's own error was thrown away.
+  - **Timeout:** every request times out after 60 s. The SDK never retries by default, so these retries are the only ones.
+  - **Temporary errors:** 5xx, timeouts and connection errors are retried after 2 s and 4 s, at most 3 attempts per model (§5).
+  - **Rate limits (429):** the call waits the delay Gemini asks for if it is ≤ 60 s. A longer one (e.g. the daily quota is used up) falls back at once.
+  - **Bad request, key or permission (400/401/403):** the run stops with exit 1 and no fallback, because the backup would fail the same way. A missing model (404) and unexpected errors fall back at once, as before.
+  - **Sticky fallback:** once the primary fails, the rest of the run goes straight to the fallback instead of retrying the dead primary for each agent. As before, the whole run's data goes to `output_beta/`.
+  - **Logging:** the fallback's error is now logged. `logs/system_health.log` keeps its format.
+  - **Settings:** new `[gemini_requests]` section in `config.toml` (`timeout_seconds`, `max_attempts` 1–3, `max_retry_wait_seconds`), **not frozen**: it changes how calls are retried, not what the models are asked. `tests/test_config.py` now pins only the frozen fields and fails if a new setting isn't classified as frozen or not.
+  - No `strategy_version` bump: models, prompts and generation settings are unchanged, and every record names the model actually used (§2.4).
+  - Tests: `tests/test_agents.py` (15, each checked to fail on the old code) plus config range checks, 159 in total. Three fallback tests were updated for the sticky fallback.
+
+### Fixed
 - **A total AI failure no longer exits with "success"** (branch `fix/ai-failure-exit-code`; `TODO.md` Phase 2 item ticked, M1.2). Before, "Both models unreachable" printed a message but exited 0, so a scheduler or heartbeat would have counted the run as a success.
   - `analyze` and `auto` now exit 1 when neither model answers, whether for Agent 1, Agent 2 or one strategy's Agent 3.
   - The other strategy still runs, and `auto` still runs `operate`, so open trades are still resolved.

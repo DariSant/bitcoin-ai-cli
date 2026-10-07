@@ -44,7 +44,7 @@ Sections 1–4 below are the original audit of 2026-10-04, kept for its evidence
 **M1. Robustness groundwork (no trade changes, no version bump; the agent can do these without asking).** About 2 days.
 1. ~~**Tick-data study**~~ Done 2026-10-07: feasible at any age. Binance REST covers 48 h, the daily archive covers everything older, and the data is complete. Recommended backup: OKX. See the Phase 1 same-candle item and `research/results/tick_data_2026-10-07.md`.
 2. ~~**Total AI failure exits non-zero**~~ Done 2026-10-07 (`fix/ai-failure-exit-code`).
-3. **Gemini error handling:** timeout, retries for 429/5xx, no fallback on 400/401/403, both errors logged, and the backup used for the rest of the run once the primary fails (Phase 2, M).
+3. ~~**Gemini error handling**~~ Done 2026-10-07 (`fix/gemini-error-handling`).
 4. **Validate AI replies** with `pydantic` (approved): a bad reply skips only that strategy and is logged (Phase 2, M).
 5. **Binance retries** and one shared exchange object with a timeout (Phase 2, S). M2.1 extends this helper.
 6. **`mock` uses `compute_order`**, so it tests the real math (Phase 1, S). `mock` affects no trade, so no version bump is needed, but its snapshot changes on purpose.
@@ -83,6 +83,7 @@ When all eight are merged, set `strategy_version = "1.0"`: the first official ve
 5. **Confirm the run schedule:** every 30 minutes, just after a candle closes. It is still marked "Proposed", and the schedule is under the strategy freeze.
 6. **Gemini consistency check** (about 20 calls) before M2.5.
 7. **Approvals for M3:** the `check-setup` command, the log format change, removing the unused Gemini key check from `operate`, and keeping or removing `requests`.
+8. **Declare `httpx` in `pyproject.toml`?** `agents.py` now imports it to catch Gemini timeouts. Today it arrives with `google-genai`. Declaring it is safer, but it counts as adding a dependency (§4).
 
 ---
 
@@ -457,7 +458,7 @@ These answers (full text in section 4) are now built into the items below.
   - Caution (found 2026-10-07): don't check "is that PID alive?" with `os.kill(pid, 0)`. On Windows, signal 0 is `CTRL_C_EVENT`, so the check would interrupt a process. Prefer an OS file lock (`fcntl.flock` on Linux, `msvcrt.locking` on Windows), held on an open lock file: the OS releases it when the process dies, so stale locks can't happen and the lock file is never deleted (`AGENTS.md` §5).
   - Done when: starting a second `auto` while one is running prints "another run is in progress" and exits.
 
-- [ ] **[P1] The AI fallback treats every error the same, with no retries or timeout** — Confirmed — Effort: M
+- [x] **[P1] The AI fallback treats every error the same, with no retries or timeout** — Confirmed — Effort: M
   - Where: `app.py:L83-L130`
   - Problem:
     - Any exception switches to the backup model, including a bad API key (which will also fail on the backup) and a 429 rate limit (where waiting is better).
@@ -472,6 +473,14 @@ These answers (full text in section 4) are now built into the items below.
     - Set a request timeout via `http_options`.
     - Once the primary fails in a run, use the backup for the remaining agents.
   - Done when: tests with a fake client cover 401 (no fallback, clear message), 429 then success (retry, no fallback), and 500 ×3 (fallback, both errors logged).
+  - Status (2026-10-07): done on branch `fix/gemini-error-handling`.
+    - Every client gets a timeout (60 s). The SDK itself never retries by default.
+    - 5xx, timeouts and connection errors are retried after 2 s and 4 s, at most 3 attempts per model.
+    - A 429 waits the delay Gemini asks for (`RetryInfo`) if it's ≤ 60 s; a longer wait (daily quota) falls back at once.
+    - 400/401/403 stop the run with exit 1 and no fallback. 404 (model gone) and unexpected errors fall back at once.
+    - Once the primary fails, the rest of the run uses the fallback (`agents.ModelRouter`). The fallback's error is now logged.
+    - New `[gemini_requests]` settings, not frozen. `tests/test_agents.py` has 15 tests, checked to fail on the old code.
+  - Follow-up: `agents.py` imports `httpx` to catch timeouts, which the SDK passes through unwrapped. `httpx` comes with `google-genai`; declaring it in `pyproject.toml` would be a new direct dependency (owner decision).
 
 - [x] **[P1] Total AI failure exits with "success" (exit code 0)** — Confirmed — Effort: S
   - Where: `app.py:L970-L972`, `L1029-L1031`, `L1096-L1102`, `L1167-L1169`
