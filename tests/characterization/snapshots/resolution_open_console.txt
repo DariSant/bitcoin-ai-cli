@@ -1,0 +1,24 @@
+╭─ [ DEFENSIVE Operator: Execution Ticket ] ─╮
+│ Verdict: GO LONG                           │
+│                                            │
+│ Opened: 2026-10-01 11:05:00 UTC            │
+│ Order Type: MARKET                         │
+│ Entry Price: $67,000.00                    │
+│ Stop Loss: $66,700.00                      │
+│ Take Profit: $67,600.00                    │
+│ Risk/Reward Ratio: 2.00                    │
+│ Position Size USD: $22,333.33              │
+╰────────────────────────────────────────────╯
+Status: Active position detected for DEFENSIVE. Execution halted until TP/SL resolution.
+╭─ [ GREEDY Operator: Execution Ticket ] ─╮
+│ Verdict: GO SHORT                       │
+│                                         │
+│ Opened: 2026-10-01 11:05:00 UTC         │
+│ Order Type: MARKET                      │
+│ Entry Price: $67,000.00                 │
+│ Stop Loss: $67,300.00                   │
+│ Take Profit: $66,400.00                 │
+│ Risk/Reward Ratio: 2.00                 │
+│ Position Size USD: $22,333.33           │
+╰─────────────────────────────────────────╯
+Status: Active position detected for GREEDY. Execution halted until TP/SL resolution.

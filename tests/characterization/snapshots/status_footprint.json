@@ -1,0 +1,49 @@
+{
+  "metadata": {
+    "timestamp": "<LOCAL_ISO T+0s>",
+    "symbol": "BTC/USDT",
+    "command_run": "status"
+  },
+  "raw_market_data": {
+    "4h": {
+      "price": 70067.76,
+      "calculated_resistance": 72009.16,
+      "calculated_support": 69866.38,
+      "volume": 6515.76,
+      "vma_20": 5033.19,
+      "poc_price": 65560.95,
+      "ema_34": 70673.8,
+      "ema_89": 69514.29,
+      "ema_144": 68090.71,
+      "rsi_13": 44.59,
+      "rsi_47": 51.69,
+      "rsi_delta": -7.1,
+      "atr_14": 937.34,
+      "vah": 71090.3,
+      "val": 63717.84,
+      "dist_144_percent": 2.9,
+      "dist_poc_percent": 6.87,
+      "va_status": "INSIDE_VALUE"
+    },
+    "15m": {
+      "price": 66976.62,
+      "calculated_resistance": 67282.57,
+      "calculated_support": 66802.39,
+      "volume": 348.76,
+      "vma_20": 312.14,
+      "poc_price": 64475.44,
+      "ema_34": 66825.9,
+      "ema_89": 66228.69,
+      "ema_144": 65805.42,
+      "rsi_13": 52.13,
+      "rsi_47": 60.94,
+      "rsi_delta": -8.81,
+      "atr_14": 140.55,
+      "vah": 67261.15,
+      "val": 64311.58,
+      "dist_144_percent": 1.78,
+      "dist_poc_percent": 3.88,
+      "va_status": "INSIDE_VALUE"
+    }
+  }
+}

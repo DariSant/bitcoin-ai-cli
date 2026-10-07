@@ -1,0 +1,1 @@
+{"timestamp": "2026-10-01T12:00:00Z", "ticker": "BTC/USDT", "agent_failing": "agent_1_technical", "error_code": "RuntimeError", "error_message": "primary unavailable", "primary_model": "gemini-3.5-flash-lite", "fallback_model": "gemini-2.5-flash", "data_routed_to": "output_beta"}

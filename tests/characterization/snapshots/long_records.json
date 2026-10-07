@@ -1,0 +1,290 @@
+{
+  "analysis": {
+    "defensive": {
+      "metadata": {
+        "timestamp": "<LOCAL_ISO T+0s>",
+        "symbol": "BTC/USDT",
+        "command_run": "analyze"
+      },
+      "raw_market_data": {
+        "4h": {
+          "price": 70067.76,
+          "calculated_resistance": 72009.16,
+          "calculated_support": 69866.38,
+          "volume": 6515.76,
+          "vma_20": 5033.19,
+          "poc_price": 65560.95,
+          "ema_34": 70673.8,
+          "ema_89": 69514.29,
+          "ema_144": 68090.71,
+          "rsi_13": 44.59,
+          "rsi_47": 51.69,
+          "rsi_delta": -7.1,
+          "atr_14": 937.34,
+          "vah": 71090.3,
+          "val": 63717.84,
+          "dist_144_percent": 2.9,
+          "dist_poc_percent": 6.87,
+          "va_status": "INSIDE_VALUE"
+        },
+        "15m": {
+          "price": 66976.62,
+          "calculated_resistance": 67282.57,
+          "calculated_support": 66802.39,
+          "volume": 348.76,
+          "vma_20": 312.14,
+          "poc_price": 64475.44,
+          "ema_34": 66825.9,
+          "ema_89": 66228.69,
+          "ema_144": 65805.42,
+          "rsi_13": 52.13,
+          "rsi_47": 60.94,
+          "rsi_delta": -8.81,
+          "atr_14": 140.55,
+          "vah": 67261.15,
+          "val": 64311.58,
+          "dist_144_percent": 1.78,
+          "dist_poc_percent": 3.88,
+          "va_status": "INSIDE_VALUE"
+        }
+      },
+      "agent_1_technical": {
+        "general_analysis": "4H and 15m EMA stacks CONFIRMED BULLISH. RSI_13 below RSI_47 on both timeframes.",
+        "trend_state": "MACRO: BULLISH | MICRO: BULLISH | STATUS: ALIGNMENT",
+        "momentum_divergence": "RSI_FAST: 52.13 | RSI_SLOW: 60.94 | DELTA: -8.81 | STATE: DECAY",
+        "key_level_interaction": "THREAT: SUPPORT | DISTANCE: 0.26% | ACTION: TESTING",
+        "bias": "BULLISH"
+      },
+      "agent_2_volume": {
+        "general_analysis": "Volume EXPANSION above VMA_20 with price INSIDE_VALUE on both timeframes.",
+        "liquidity_state": "STATUS: INSIDE_VALUE | ACTION: RANGE_ROTATION",
+        "volume_momentum": "VOL_VS_VMA: 1.12 | STATE: EXPANSION",
+        "magnet_target": "TARGET: 67450.00 | DISTANCE: 0.71%",
+        "bias": "BULLISH"
+      },
+      "agent_3_synthesis": {
+        "executive_summary": "Defensive desk verdict GO LONG on the canned test reports.",
+        "confluence_matrix": "STRUCTURE: ALIGN | VOLUME: SUPPORTIVE | ACTION: VALID",
+        "risk_vector": "THREAT_PROXIMITY: LOW | MAGNET_PULL: STRONG | OVERALL_RISK: ASYMMETRIC",
+        "final_verdict": "GO LONG"
+      }
+    },
+    "greedy": {
+      "metadata": {
+        "timestamp": "<LOCAL_ISO T+0s>",
+        "symbol": "BTC/USDT",
+        "command_run": "analyze"
+      },
+      "raw_market_data": {
+        "4h": {
+          "price": 70067.76,
+          "calculated_resistance": 72009.16,
+          "calculated_support": 69866.38,
+          "volume": 6515.76,
+          "vma_20": 5033.19,
+          "poc_price": 65560.95,
+          "ema_34": 70673.8,
+          "ema_89": 69514.29,
+          "ema_144": 68090.71,
+          "rsi_13": 44.59,
+          "rsi_47": 51.69,
+          "rsi_delta": -7.1,
+          "atr_14": 937.34,
+          "vah": 71090.3,
+          "val": 63717.84,
+          "dist_144_percent": 2.9,
+          "dist_poc_percent": 6.87,
+          "va_status": "INSIDE_VALUE"
+        },
+        "15m": {
+          "price": 66976.62,
+          "calculated_resistance": 67282.57,
+          "calculated_support": 66802.39,
+          "volume": 348.76,
+          "vma_20": 312.14,
+          "poc_price": 64475.44,
+          "ema_34": 66825.9,
+          "ema_89": 66228.69,
+          "ema_144": 65805.42,
+          "rsi_13": 52.13,
+          "rsi_47": 60.94,
+          "rsi_delta": -8.81,
+          "atr_14": 140.55,
+          "vah": 67261.15,
+          "val": 64311.58,
+          "dist_144_percent": 1.78,
+          "dist_poc_percent": 3.88,
+          "va_status": "INSIDE_VALUE"
+        }
+      },
+      "agent_1_technical": {
+        "general_analysis": "4H and 15m EMA stacks CONFIRMED BULLISH. RSI_13 below RSI_47 on both timeframes.",
+        "trend_state": "MACRO: BULLISH | MICRO: BULLISH | STATUS: ALIGNMENT",
+        "momentum_divergence": "RSI_FAST: 52.13 | RSI_SLOW: 60.94 | DELTA: -8.81 | STATE: DECAY",
+        "key_level_interaction": "THREAT: SUPPORT | DISTANCE: 0.26% | ACTION: TESTING",
+        "bias": "BULLISH"
+      },
+      "agent_2_volume": {
+        "general_analysis": "Volume EXPANSION above VMA_20 with price INSIDE_VALUE on both timeframes.",
+        "liquidity_state": "STATUS: INSIDE_VALUE | ACTION: RANGE_ROTATION",
+        "volume_momentum": "VOL_VS_VMA: 1.12 | STATE: EXPANSION",
+        "magnet_target": "TARGET: 67450.00 | DISTANCE: 0.71%",
+        "bias": "BULLISH"
+      },
+      "agent_3_synthesis": {
+        "executive_summary": "Greedy desk verdict GO LONG on the canned test reports.",
+        "confluence_matrix": "STRUCTURE: ALIGN | VOLUME: SUPPORTIVE | ACTION: VALID",
+        "risk_vector": "THREAT_PROXIMITY: LOW | MAGNET_PULL: STRONG | OVERALL_RISK: ASYMMETRIC",
+        "final_verdict": "GO LONG"
+      }
+    }
+  },
+  "execution": {
+    "defensive": {
+      "metadata": {
+        "timestamp": "<LOCAL_ISO T+60s>",
+        "symbol": "BTC/USDT",
+        "command_run": "operate",
+        "strategy": "defensive"
+      },
+      "operator_payload": {
+        "verdict": "GO LONG",
+        "account_balance_usdt": 10000.0,
+        "risk_per_trade_percent": 1.0,
+        "current_price": 66976.62,
+        "atr_14": 140.55,
+        "agent_1_threat_level": 66802.39,
+        "agent_2_magnet_target": 67450.0
+      },
+      "operator_execution": {
+        "order_type": "MARKET",
+        "entry_price": 66976.62,
+        "stop_loss": 66732.12,
+        "take_profit": 67450.0,
+        "risk_reward_ratio": 1.94,
+        "position_size_usd": 27392.74
+      }
+    },
+    "greedy": {
+      "metadata": {
+        "timestamp": "<LOCAL_ISO T+60s>",
+        "symbol": "BTC/USDT",
+        "command_run": "operate",
+        "strategy": "greedy"
+      },
+      "operator_payload": {
+        "verdict": "GO LONG",
+        "account_balance_usdt": 10000.0,
+        "risk_per_trade_percent": 1.0,
+        "current_price": 66976.62,
+        "atr_14": 140.55,
+        "agent_1_threat_level": 66802.39,
+        "agent_2_magnet_target": 67450.0
+      },
+      "operator_execution": {
+        "order_type": "MARKET",
+        "entry_price": 66976.62,
+        "stop_loss": 66732.12,
+        "take_profit": 67450.0,
+        "risk_reward_ratio": 1.94,
+        "position_size_usd": 27392.74
+      }
+    }
+  },
+  "ledger": {
+    "defensive": {
+      "symbol": "BTC/USDT",
+      "status": "OPEN",
+      "entry_timestamp": 1790856060.0,
+      "verdict": "GO LONG",
+      "order_type": "MARKET",
+      "entry_price": 66976.62,
+      "stop_loss": 66732.12,
+      "take_profit": 67450.0,
+      "risk_reward_ratio": 1.94,
+      "position_size_usd": 27392.74
+    },
+    "greedy": {
+      "symbol": "BTC/USDT",
+      "status": "OPEN",
+      "entry_timestamp": 1790856060.0,
+      "verdict": "GO LONG",
+      "order_type": "MARKET",
+      "entry_price": 66976.62,
+      "stop_loss": 66732.12,
+      "take_profit": 67450.0,
+      "risk_reward_ratio": 1.94,
+      "position_size_usd": 27392.74
+    }
+  },
+  "history": {
+    "defensive": [
+      {
+        "symbol": "BTC/USDT",
+        "status": "CLOSED",
+        "entry_timestamp": 1790856060.0,
+        "verdict": "GO LONG",
+        "order_type": "MARKET",
+        "entry_price": 66976.62,
+        "stop_loss": 66732.12,
+        "take_profit": 67450.0,
+        "risk_reward_ratio": 1.94,
+        "position_size_usd": 27392.74,
+        "result": "WIN",
+        "pnl_usd": 193.61,
+        "close_timestamp": 1790857800.0
+      }
+    ],
+    "greedy": [
+      {
+        "symbol": "BTC/USDT",
+        "status": "CLOSED",
+        "entry_timestamp": 1790856060.0,
+        "verdict": "GO LONG",
+        "order_type": "MARKET",
+        "entry_price": 66976.62,
+        "stop_loss": 66732.12,
+        "take_profit": 67450.0,
+        "risk_reward_ratio": 1.94,
+        "position_size_usd": 27392.74,
+        "result": "WIN",
+        "pnl_usd": 193.61,
+        "close_timestamp": 1790857800.0
+      }
+    ]
+  },
+  "files_written": [
+    "output_alpha/analyze/defensive/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_DEF_analysis.json",
+    "output_alpha/analyze/greedy/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_GREED_analysis.json",
+    "output_alpha/defensive/BTC_USDT_trade_history.json",
+    "output_alpha/greedy/BTC_USDT_trade_history.json",
+    "output_alpha/operate/defensive/2026-10/<LOCAL_STAMP T+60s>_BTCUSDT_DEF_EXECUTION.json",
+    "output_alpha/operate/greedy/2026-10/<LOCAL_STAMP T+60s>_BTCUSDT_GREED_EXECUTION.json"
+  ],
+  "exchange_calls": [
+    {
+      "symbol": "BTC/USDT",
+      "timeframe": "4h",
+      "since": null,
+      "limit": 200
+    },
+    {
+      "symbol": "BTC/USDT",
+      "timeframe": "15m",
+      "since": null,
+      "limit": 200
+    },
+    {
+      "symbol": "BTC/USDT",
+      "timeframe": "15m",
+      "since": null,
+      "limit": 100
+    },
+    {
+      "symbol": "BTC/USDT",
+      "timeframe": "15m",
+      "since": null,
+      "limit": 100
+    }
+  ]
+}

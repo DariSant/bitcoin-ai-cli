@@ -1,0 +1,10 @@
+[
+  "logs/system_health.log",
+  "output_alpha/status/system/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_SYSTEM_analysis.json",
+  "output_beta/analyze/defensive/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_DEF_analysis.json",
+  "output_beta/analyze/greedy/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_GREED_analysis.json",
+  "output_beta/defensive/BTC_USDT_paper_ledger.json",
+  "output_beta/greedy/BTC_USDT_paper_ledger.json",
+  "output_beta/operate/defensive/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_DEF_EXECUTION.json",
+  "output_beta/operate/greedy/2026-10/<LOCAL_STAMP T+0s>_BTCUSDT_GREED_EXECUTION.json"
+]
