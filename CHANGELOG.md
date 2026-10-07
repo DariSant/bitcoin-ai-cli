@@ -14,12 +14,33 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 
 ## 2026-10-07
 
+### Decisions (owner)
+- **Two modules added to the `btc_cli/` layout:**
+  - `pipeline.py` holds the status / analyze / operate / mock flows, so `cli.py` keeps only commands and display.
+  - `console.py` holds the shared console and panels, so no module has to import the CLI.
+- **Delete leftover files** that won't be needed: `main.py` and `bitcoin_ai_cli.egg-info/`.
+- **Push to GitHub** once Phase 0 is finished.
+
+### Changed
+- **`app.py` split into the `btc_cli/` package (Phase 0 is now complete)** on branch `refactor/btc-cli-package`. There is no behaviour change, so no `strategy_version` bump:
+  - Every characterization test and snapshot passed unchanged.
+  - Both `mock` commands, `commands` and every `--help` give byte-identical output before and after.
+  - Known bugs moved as they were. Prompts and indicator code were copied by line range, not retyped.
+  - `app.py` is now a thin entry point (loads `.env`, sets up logging, starts the CLI), so `uv run app.py <command>` works as before.
+  - In `TODO.md`, references like `app.py:Lnnn` point to the pre-split file (`git show 98ee1d7:app.py`).
+- `pyproject.toml`: a real project description replaces "Add your description here". `.gitignore` now ignores `*.egg-info/`.
+
+### Removed
+- `main.py` (unused starter stub) and `bitcoin_ai_cli.egg-info/` (old build leftover). Part of the `TODO.md` cleanup item, which stays open for the `requests` decision and two small code items.
+
 ### Added
 - **Characterization tests (Phase 0, step 1)** on branch `test/characterization-tests`. There are 43 offline tests that record exactly what the tool does today, so the `app.py` split can prove it changed nothing.
   - They drive the real CLI (`status`, `analyze`, `operate`, `auto`, `mock`, `commands`, `ask`) with a fake exchange serving saved candles (`tests/fixtures/`), a fake Gemini client with canned replies, and a frozen clock.
   - They capture the indicator values, the exact prompt sent to each agent, the analysis, ticket, ledger and history files for a long, a short and a `SIT ON HANDS` case, trade resolution, model fallback routing, and the console output. Expected outputs are in `tests/characterization/snapshots/`.
   - Known bugs are pinned as they behave today, not fixed: the entry candle is ignored, a candle touching both levels is a LOSS, only 25 h is checked, a damaged history file is overwritten, a total AI failure exits 0, one fallback moves the whole run to `output_beta`, and `mock` uses different stop math. These tests will change on purpose when each Phase 1/2 fix is approved.
   - Safety: every test runs in a temporary folder with the network blocked, and `.env` is never loaded. `output_alpha/`, `logs/`, `error.log` and the Gemini quota are never touched (checked after the run).
+- Unit tests for `trade_operator` and `ledger`, plus `tests/test_architecture.py`, which checks the §10 rules: the pure modules do no I/O, and nothing imports the CLI.
+- Characterization test for a new finding: `ask` exits 0 when both models are down, because its `except Exception` also catches its own `typer.Exit`. Added to the `TODO.md` "Total AI failure exits with success" item.
 - `pytest` added as a dev dependency (`uv add --dev pytest`, approved 2026-10-04), plus pytest settings in `pyproject.toml`. Tests now run with `uv run pytest`.
 
 ### Changed

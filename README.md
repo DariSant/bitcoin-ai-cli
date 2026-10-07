@@ -253,11 +253,11 @@ A mock file must contain: `verdict`, `account_balance_usdt`, `risk_per_trade_per
 
 | File / Folder | Purpose |
 |---|---|
-| `app.py` | **The whole application.** Everything lives here for now, to keep it simple. |
+| `app.py` | Entry point: loads `.env`, sets up logging and starts the CLI, so `uv run app.py <command>` works |
+| `btc_cli/` | The application package. `cli.py`: commands. `pipeline.py`: the status / analyze / operate / mock flows. `data.py`: exchange data. `indicators.py`: EMAs, RSI, ATR, volume profile. `agents.py`: Gemini prompts and model fallback. `trade_operator.py`: entry, stop, target and size math. `ledger.py`: WIN/LOSS and PnL. `storage.py`: every file the tool writes. `console.py`: terminal panels. `config.py`: settings. `logging_setup.py`: error log |
 | `tests/` | Offline tests (`uv run pytest`); `tests/characterization/` holds the behaviour snapshots, `tests/fixtures/` the saved candles |
 | `mock_json/` | Sample trade payloads for the `mock` command |
 | `list_models.py` | Helper that prints every Gemini model your API key can use |
-| `main.py` | Leftover starter file (not used) |
 | `pyproject.toml` / `uv.lock` | Library list and exact pinned versions, managed by uv |
 | `AGENTS.md` | Instructions for AI coding assistants working on this repo |
 | `CHANGELOG.md` | **Record of every change and decision**, newest first. Read this to see what changed and why. |

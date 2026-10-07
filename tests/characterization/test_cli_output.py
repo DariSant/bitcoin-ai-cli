@@ -60,3 +60,15 @@ def test_ask_sends_the_raw_question_without_a_schema(run_cli, gemini, tmp_path, 
     assert gemini.calls == [{"model": PRIMARY_MODEL, "contents": "What is ATR?", "response_mime_type": None, "response_schema": None}]
     assert list(tmp_path.iterdir()) == []
     snapshot("ask_console.txt", out.output)
+
+
+def test_ask_with_both_models_down_exits_0(run_cli, gemini):
+    """Known issue: ask's broad `except Exception` also catches its own typer.Exit (a RuntimeError)."""
+    gemini.script = [RuntimeError("primary down"), RuntimeError("fallback down")]
+
+    out = run_cli("ask", "What is ATR?")
+
+    assert out.exit_code == 0
+    assert "Both models unreachable" in out.output
+    # str(typer.Exit) is empty, so the message ends right after the colon.
+    assert out.output.endswith("An unexpected error occurred: \n")

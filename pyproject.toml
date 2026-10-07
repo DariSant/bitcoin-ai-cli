@@ -1,7 +1,7 @@
 [project]
 name = "bitcoin-ai-cli"
 version = "0.1.0"
-description = "Add your description here"
+description = "CLI that analyzes BTC market data with Gemini agents and records paper trades"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
