@@ -38,7 +38,7 @@ from rich.console import Console  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
 import app as app_module  # noqa: E402
-from btc_cli import config  # noqa: E402
+from btc_cli import agents, config, data  # noqa: E402
 
 TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TESTS_DIR.parent
@@ -93,6 +93,8 @@ class FakeExchange:
         self.candles: dict[str, list[list[float]]] = {"4h": load_candles("4h"), "15m": load_candles("15m")}
         self.calls: list[dict[str, Any]] = []
         self.instances = 0
+        self.options: list[dict[str, Any]] = []
+        self.sleeps: list[float] = []  # retry waits, recorded instead of slept
         self.error: Exception | None = None
 
     def fetch_ohlcv(self, symbol: str, timeframe: str = "1m", since: int | None = None, limit: int | None = None, params: dict | None = None) -> list[list[float]]:
@@ -118,10 +120,13 @@ class FakeGemini:
         self.script: list[str | Exception] = []
         self.calls: list[dict[str, Any]] = []
         self.clients_created = 0
+        self.client_kwargs: list[dict[str, Any]] = []
+        self.sleeps: list[float] = []  # retry waits, recorded instead of slept
         self.models = SimpleNamespace(generate_content=self._generate_content)
 
     def client_factory(self, *args: Any, **kwargs: Any) -> "FakeGemini":
         self.clients_created += 1
+        self.client_kwargs.append(kwargs)
         return self
 
     def _generate_content(self, model: str, contents: str, config: dict | None = None) -> SimpleNamespace:
@@ -214,10 +219,15 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tmp_path_facto
 
     def make_exchange(*args: Any, **kwargs: Any) -> FakeExchange:
         exchange.instances += 1
+        exchange.options.extend(args)
         return exchange
 
     monkeypatch.setattr(ccxt, "binance", make_exchange)
     monkeypatch.setattr(genai, "Client", gemini.client_factory)
+    monkeypatch.setattr(agents, "_sleep", gemini.sleeps.append)
+    # A fresh exchange object per test (data caches one per process), and retries that don't wait.
+    monkeypatch.setattr(data, "_exchange", None)
+    monkeypatch.setattr(data, "_sleep", exchange.sleeps.append)
 
     _patch_app_modules(monkeypatch, "datetime", lambda v: v is real_datetime, _make_frozen_datetime(clock))
     # A fixed-width, colourless console that writes to whatever sys.stdout is (CliRunner's buffer).

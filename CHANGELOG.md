@@ -14,6 +14,46 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 
 ## 2026-10-07
 
+### Fixed
+- **`mock` now checks the real Operator math** (branch `fix/mock-uses-operator-math`; `TODO.md` Phase 1 item ticked, M1.6). It had its own copy of the stop rule without operate's 1-ATR floor, so it could show a ticket `operate` would never produce.
+  - `mock` now calls `trade_operator.compute_order`, and the duplicate `compute_mock_order` is removed.
+  - New `mock_json/mock_floor.json`, where the floor decides: SL 69,000, size $7,000. The old mock showed SL 69,400 and $11,667.
+  - `mock_long` and `mock_short` print exactly as before.
+  - `mock` writes nothing and opens no trade, so no `strategy_version` bump. 3 new tests check that mock and operate give the same ticket (184 in total).
+- **Binance calls are retried, and an outage no longer stops the whole run** (branch `fix/binance-retries`; `TODO.md` Phase 2 item ticked, M1.5). Before, every fetch created a new exchange object with no timeout, which also downloaded Binance's market list again each time. One network error while checking an open trade printed the raw exception and stopped the run.
+  - **Shared client:** one exchange object per process, with a 15 s timeout and ccxt's rate limiting.
+  - **Retries:** temporary network errors (`ccxt.NetworkError`: timeouts, rate limits, maintenance) are retried after 2 s and 4 s, at most 3 attempts. Permanent errors (`ExchangeError`: bad symbol or request) are not retried.
+  - **Open-trade check:** if its candles still can't be fetched, the trade **stays open** and is checked again next run (§2.6: never guess). Only that strategy is skipped, the message is short (details in `error.log`), and the command exits 1.
+  - **Settings:** new `[exchange_requests]` section (`timeout_seconds`, `max_attempts` 1–3), not frozen.
+  - No trade decision changes, so no `strategy_version` bump. Snapshots unchanged. 13 new tests (181 in total), and one characterization test updated for the new outage behaviour.
+- **AI replies are now validated** (branch `fix/validate-ai-replies`; `TODO.md` Phase 2 item ticked, M1.4). Before, only "is it JSON?" was checked. A missing field silently became `NEUTRAL` or `SIT ON HANDS`, and a JSON error in one strategy's Agent 3 stopped the whole run, so the other strategy got no analysis that cycle and the A/B arms drifted apart.
+  - `agents.parse_reply` checks every reply against the same `TypedDict` schema Gemini is given: required fields, text types, allowed values such as `final_verdict` and `bias`. What Gemini receives is unchanged.
+  - **Invalid Agent 3 reply:** only that strategy is skipped and the other still runs.
+  - **Invalid Agent 1 or 2 reply:** the cycle is skipped, but `auto` still runs `operate` (before, it stopped the whole run).
+  - In both cases the raw reply goes to `error.log` and the command exits 1. Valid replies are saved exactly as before; every snapshot is unchanged.
+  - `pydantic` added as a direct dependency (`uv add pydantic`, approved 2026-10-04; same version as before, now declared). `pyproject.toml` and `uv.lock` updated.
+  - No trade decision changes: an invalid reply never led to a trade before either. 9 new tests (168 in total).
+- **Gemini calls now have a timeout, sensible retries and a stricter fallback** (branch `fix/gemini-error-handling`; `TODO.md` Phase 2 item ticked, M1.3). Before, any error switched straight to the backup model with no retry and no timeout. A bad API key wasted a call on the backup, and the backup's own error was thrown away.
+  - **Timeout:** every request times out after 60 s. The SDK never retries by default, so these retries are the only ones.
+  - **Temporary errors:** 5xx, timeouts and connection errors are retried after 2 s and 4 s, at most 3 attempts per model (§5).
+  - **Rate limits (429):** the call waits the delay Gemini asks for if it is ≤ 60 s. A longer one (e.g. the daily quota is used up) falls back at once.
+  - **Bad request, key or permission (400/401/403):** the run stops with exit 1 and no fallback, because the backup would fail the same way. A missing model (404) and unexpected errors fall back at once, as before.
+  - **Sticky fallback:** once the primary fails, the rest of the run goes straight to the fallback instead of retrying the dead primary for each agent. As before, the whole run's data goes to `output_beta/`.
+  - **Logging:** the fallback's error is now logged. `logs/system_health.log` keeps its format.
+  - **Settings:** new `[gemini_requests]` section in `config.toml` (`timeout_seconds`, `max_attempts` 1–3, `max_retry_wait_seconds`), **not frozen**: it changes how calls are retried, not what the models are asked. `tests/test_config.py` now pins only the frozen fields and fails if a new setting isn't classified as frozen or not.
+  - No `strategy_version` bump: models, prompts and generation settings are unchanged, and every record names the model actually used (§2.4).
+  - Tests: `tests/test_agents.py` (15, each checked to fail on the old code) plus config range checks, 159 in total. Three fallback tests were updated for the sticky fallback.
+
+### Fixed
+- **A total AI failure no longer exits with "success"** (branch `fix/ai-failure-exit-code`; `TODO.md` Phase 2 item ticked, M1.2). Before, "Both models unreachable" printed a message but exited 0, so a scheduler or heartbeat would have counted the run as a success.
+  - `analyze` and `auto` now exit 1 when neither model answers, whether for Agent 1, Agent 2 or one strategy's Agent 3.
+  - The other strategy still runs, and `auto` still runs `operate`, so open trades are still resolved.
+  - `ask` now exits 1 when both models are down or on a Gemini API error. Its broad `except Exception` used to catch its own exit, and errors are now logged.
+  - No trade decision changes, so no `strategy_version` bump. Three characterization tests that pinned the old exit 0 were updated; two tests are new (139 in total).
+
+### Maintenance
+- **`.gitattributes`** (`* text=auto eol=lf`, branch `chore/gitattributes`; `TODO.md` line-ending item ticked, M1.8). Git now keeps LF line endings on Windows too, so the "LF will be replaced by CRLF" warnings stop and the Windows and Linux copies match. Every tracked file was already stored with LF, so no content changed.
+
 ### Research
 - **Tick data study** (`research/tick_data_study.py`, report `research/results/tick_data_2026-10-07.md`; M1.1 in `TODO.md`). This answers the §2.6 question that had to be settled before the precise trade-resolution design.
   - **Binance USDT-M:** individual trades are available at any age, through REST for the last 48 h and the public daily archive before that. They are complete: a whole day's trades match the candle volume exactly.

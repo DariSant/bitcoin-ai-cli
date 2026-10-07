@@ -1,10 +1,19 @@
 """Gemini agents: response schemas, prompts and the primary/fallback model call."""
 
 import json
+import logging
+import re
+import time
 import typing
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
+# httpx is google-genai's HTTP library (a dependency of it, see uv.lock). The SDK lets its
+# timeouts and connection errors through unwrapped, so they are caught by httpx's types.
+import httpx
 from google import genai
+from google.genai import errors, types
+from pydantic import TypeAdapter, ValidationError
 from rich.panel import Panel
 
 from btc_cli import config, storage
@@ -33,29 +42,126 @@ class Agent3ManagerSchema(typing.TypedDict):
     final_verdict: typing.Literal["GO LONG", "GO SHORT", "SIT ON HANDS"]
 
 
-# --- Model call with fallback ---
+# --- Reply validation ---
 
-def query_llm_with_fallback(client: genai.Client, prompt: str, schema_class: type | None, agent_name: str, ticker: str = "BTC/USDT") -> tuple[str | None, str | None]:
+class InvalidReplyError(Exception):
+    """An AI reply that is not valid JSON or does not match the schema the model was given."""
+
+    def __init__(self, agent: str, reason: str, raw: str) -> None:
+        super().__init__(f"{agent}: {reason}")
+        self.agent = agent
+        self.reason = reason
+        self.raw = raw
+
+
+def parse_reply(text: str, schema: type, agent: str) -> dict:
+    """The reply as a dict, checked against the same schema Gemini was given; raises InvalidReplyError.
+
+    The dict is the reply exactly as parsed, so the saved record is unchanged; validation only checks it.
     """
-    Centralized function that handles all LLM requests with an instant failover.
+    try:
+        TypeAdapter(schema).validate_json(text)
+    except ValidationError as e:
+        problems = "; ".join(f"{'.'.join(str(p) for p in err['loc']) or 'reply'}: {err['msg']}" for err in e.errors()[:3])
+        raise InvalidReplyError(agent, problems, text) from e
+    return json.loads(text)
+
+
+# --- Model call with retries and fallback (AGENTS.md §5) ---
+
+# Wrong request, key or permission: the fallback would fail the same way, so the run stops (exit 1).
+NO_FALLBACK_CODES = (400, 401, 403)
+
+# Patched by the tests so retries don't really wait.
+_sleep = time.sleep
+
+
+def make_client(api_key: str) -> genai.Client:
+    """A Gemini client whose requests time out, so a hung call can't block a scheduled run."""
+    return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=config.GEMINI_TIMEOUT_SECONDS * 1000))
+
+
+@dataclass
+class ModelRouter:
+    """Per-run state: once the primary model has failed, the rest of the run goes straight to the fallback."""
+
+    primary_failed: bool = False
+
+
+def _retry_delay(error: errors.APIError) -> float | None:
+    """The wait a 429 asks for (RetryInfo.retryDelay or a Retry-After header), in seconds; None if it gives none."""
+    match = re.search(r"'retryDelay': '(\d+(?:\.\d+)?)s'", str(error.details))
+    if match:
+        return float(match.group(1))
+    headers = getattr(error.response, "headers", None) or {}
+    retry_after = headers.get("retry-after") if hasattr(headers, "get") else None
+    try:
+        return float(retry_after) if retry_after is not None else None
+    except ValueError:
+        return None
+
+
+def _generate(client: genai.Client, model: str, prompt: str, config_dict: dict | None, agent_name: str) -> str:
+    """One model's answer, retrying temporary failures; raises the last error when it gives up.
+
+    Temporary: HTTP 5xx, timeouts and connection errors (waits 2 s, 4 s), and 429 when the wait it
+    asks for is short. Every attempt counts against the daily quota.
+    """
+    attempts = config.GEMINI_MAX_ATTEMPTS
+    for attempt in range(1, attempts + 1):
+        try:
+            response = client.models.generate_content(model=model, contents=prompt, config=config_dict)
+            return response.text
+        except errors.APIError as e:
+            if e.code == 429:
+                wait = _retry_delay(e)
+                wait = 2.0 ** attempt if wait is None else wait
+                if wait > config.GEMINI_MAX_RETRY_WAIT_SECONDS:
+                    raise  # e.g. the daily quota is used up: waiting won't help this run
+            elif e.code is not None and e.code >= 500:
+                wait = 2.0 ** attempt
+            else:
+                raise
+            reason = f"HTTP {e.code}"
+        except httpx.TransportError as e:
+            wait = 2.0 ** attempt
+            reason = type(e).__name__
+        if attempt == attempts:
+            raise
+        logging.warning(f"{agent_name}: {model} failed ({reason}); retry {attempt + 1} of {attempts} in {wait:.0f}s")
+        console.print(f"[yellow]{model} is busy ({reason}). Retrying in {wait:.0f}s (attempt {attempt + 1} of {attempts})...[/yellow]")
+        _sleep(wait)
+    raise AssertionError("unreachable")
+
+
+def query_llm_with_fallback(client: genai.Client, prompt: str, schema_class: type | None, agent_name: str, ticker: str = "BTC/USDT", router: ModelRouter | None = None) -> tuple[str | None, str | None]:
+    """
+    The answer and the model that gave it, or (None, None) if neither model answered.
+
+    The primary model is tried first (with retries); on failure the call moves to the fallback model,
+    and `router` remembers that for the rest of the run. A 400/401/403 is raised instead (no fallback).
     """
     primary_model = config.PRIMARY_MODEL
     fallback_model = config.FALLBACK_MODEL
+    router = router if router is not None else ModelRouter()
 
     config_dict = None
     if schema_class:
         config_dict = {"response_mime_type": "application/json", "response_schema": schema_class}
 
-    try:
-        response = client.models.generate_content(
-            model=primary_model,
-            contents=prompt,
-            config=config_dict
-        )
-        return response.text, primary_model
-    except Exception as e:
-        error_type = type(e).__name__
-        error_message = str(e)
+    if not router.primary_failed:
+        try:
+            return _generate(client, primary_model, prompt, config_dict, agent_name), primary_model
+        except errors.APIError as e:
+            if e.code in NO_FALLBACK_CODES:
+                raise
+            primary_error: Exception = e
+        except Exception as e:  # timeouts, 404 (model gone) and unexpected SDK errors: fall back, as before
+            primary_error = e
+        router.primary_failed = True
+        logging.error(f"{agent_name}: primary model {primary_model} failed, switching to {fallback_model}", exc_info=primary_error)
+        error_type = type(primary_error).__name__
+        error_message = str(primary_error)
 
         failover_msg = (
             f"[bold yellow]⚠️ LLM ENDPOINT REROUTE TRIGGERED[/bold yellow]\n\n"
@@ -80,15 +186,16 @@ def query_llm_with_fallback(client: genai.Client, prompt: str, schema_class: typ
 
         storage.append_system_health(health_payload)
 
-        try:
-            fallback_response = client.models.generate_content(
-                model=fallback_model,
-                contents=prompt,
-                config=config_dict
-            )
-            return fallback_response.text, fallback_model
-        except Exception as fallback_e:
-            return None, None
+    try:
+        return _generate(client, fallback_model, prompt, config_dict, agent_name), fallback_model
+    except errors.APIError as e:
+        if e.code in NO_FALLBACK_CODES:
+            raise
+        logging.error(f"{agent_name}: fallback model {fallback_model} failed too", exc_info=True)
+        return None, None
+    except Exception:  # timeouts and unexpected SDK errors: report "no answer", logged in full
+        logging.error(f"{agent_name}: fallback model {fallback_model} failed too", exc_info=True)
+        return None, None
 
 
 # --- Prompt payloads (the "data diet": each analyst sees only its own fields) ---

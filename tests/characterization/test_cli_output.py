@@ -62,13 +62,27 @@ def test_ask_sends_the_raw_question_without_a_schema(run_cli, gemini, tmp_path, 
     snapshot("ask_console.txt", out.output)
 
 
-def test_ask_with_both_models_down_exits_0(run_cli, gemini):
-    """Known issue: ask's broad `except Exception` also catches its own typer.Exit (a RuntimeError)."""
+def test_ask_with_both_models_down_exits_1(run_cli, gemini):
+    """Fixed 2026-10-07: ask's broad `except Exception` used to catch its own typer.Exit and exit 0."""
     gemini.script = [RuntimeError("primary down"), RuntimeError("fallback down")]
 
     out = run_cli("ask", "What is ATR?")
 
-    assert out.exit_code == 0
+    assert out.exit_code == 1
     assert "Both models unreachable" in out.output
-    # str(typer.Exit) is empty, so the message ends right after the colon.
-    assert out.output.endswith("An unexpected error occurred: \n")
+    assert "An unexpected error occurred" not in out.output
+
+
+def test_ask_with_a_gemini_api_error_exits_1(run_cli, gemini, monkeypatch):
+    from btc_cli import agents
+    from google.genai import errors
+
+    def api_error(*args, **kwargs):
+        raise errors.APIError(400, {"error": {"message": "bad request"}})
+
+    monkeypatch.setattr(agents, "query_llm_with_fallback", api_error)
+
+    out = run_cli("ask", "What is ATR?")
+
+    assert out.exit_code == 1
+    assert "API Error" in out.output
