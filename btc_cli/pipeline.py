@@ -184,7 +184,7 @@ def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
         typer.secho("Error: GEMINI_API_KEY environment variable is missing. Please set it in your .env file.", fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
-    client = genai.Client(api_key=api_key)
+    client = agents.make_client(api_key)
 
     for strategy in strategies_to_run:
         json_files = storage.analysis_files(strategy)
@@ -387,7 +387,7 @@ def _route_to_beta_if_fallback(active_model: str | None) -> None:
         config.BASE_DIR = config.BETA_DIR
 
 
-def _run_manager(client: genai.Client, symbol: str, strategy: str, prompt: str, tech_report: dict, vol_report: dict, data_4h: dict, data_15m: dict, models_used: dict[str, str]) -> bool:
+def _run_manager(client: genai.Client, router: agents.ModelRouter, symbol: str, strategy: str, prompt: str, tech_report: dict, vol_report: dict, data_4h: dict, data_15m: dict, models_used: dict[str, str]) -> bool:
     """Agent 3 for one strategy: ask, show the synthesis and save the analysis footprint.
 
     `models_used` holds the models that answered Agents 1 and 2; this strategy's Agent 3 is added to a copy.
@@ -395,7 +395,7 @@ def _run_manager(client: genai.Client, symbol: str, strategy: str, prompt: str, 
     """
     label = strategy.capitalize()
     with console.status(f"[bold cyan]Agent 3 ({label} Manager) Thinking... (Model: {config.PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
-        manager_text, active_model = agents.query_llm_with_fallback(client, prompt, agents.Agent3ManagerSchema, f"agent_3_{strategy}", symbol)
+        manager_text, active_model = agents.query_llm_with_fallback(client, prompt, agents.Agent3ManagerSchema, f"agent_3_{strategy}", symbol, router)
 
     if manager_text is None:
         # Skip only this strategy; the other one may still run.
@@ -460,14 +460,16 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
         raise typer.Exit(code=1)
 
     try:
-        client = genai.Client(api_key=api_key)
+        client = agents.make_client(api_key)
+        # One router per run: once the primary model fails, later agents go straight to the fallback.
+        router = agents.ModelRouter()
 
         tech_payload = agents.build_tech_payload(data_4h, data_15m)
         vol_payload = agents.build_vol_payload(data_4h, data_15m)
 
         # --- Agent 1: Technical Analyst ---
         with console.status(f"[bold cyan]Agent 1 (Technical Analyst) Thinking... (Model: {config.PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
-            agent1_text, active_model = agents.query_llm_with_fallback(client, agents.build_technical_prompt(tech_payload), agents.Agent1TechSchema, "agent_1_technical", symbol)
+            agent1_text, active_model = agents.query_llm_with_fallback(client, agents.build_technical_prompt(tech_payload), agents.Agent1TechSchema, "agent_1_technical", symbol, router)
 
         if agent1_text is None:
             console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
@@ -485,7 +487,7 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
 
         # --- Agent 2: Liquidity/Volume Analyst ---
         with console.status(f"[bold cyan]Agent 2 (Liquidity/Volume Analyst) Thinking... (Model: {config.PRIMARY_MODEL})[/bold cyan]", spinner="dots"):
-            agent2_text, active_model = agents.query_llm_with_fallback(client, agents.build_volume_prompt(vol_payload), agents.Agent2VolumeSchema, "agent_2_volume", symbol)
+            agent2_text, active_model = agents.query_llm_with_fallback(client, agents.build_volume_prompt(vol_payload), agents.Agent2VolumeSchema, "agent_2_volume", symbol, router)
 
         if agent2_text is None:
             console.print("[bold red][CRITICAL] Both models unreachable. Skipping cycle.[/bold red]")
@@ -504,10 +506,10 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
         # --- Agent 3: Lead Market Strategist, one call per strategy ---
         answered = True
         if not skip_def:
-            answered &= _run_manager(client, symbol, "defensive", agents.build_defensive_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m, models_used)
+            answered &= _run_manager(client, router, symbol, "defensive", agents.build_defensive_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m, models_used)
 
         if not skip_greed:
-            answered &= _run_manager(client, symbol, "greedy", agents.build_greedy_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m, models_used)
+            answered &= _run_manager(client, router, symbol, "greedy", agents.build_greedy_prompt(tech_report, vol_report, data_15m), tech_report, vol_report, data_4h, data_15m, models_used)
         if not answered:
             failed = True
 

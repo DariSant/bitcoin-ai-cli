@@ -69,7 +69,7 @@ def test_analysis_ticket_ledger_and_history_are_versioned_and_linked(run_cli, ge
 
 
 def test_models_used_names_the_model_for_each_agent_call(run_cli, gemini, tmp_path):
-    """Only Agent 2 falls back; the record must say so per call, not per run."""
+    """Agent 2's primary call fails; the record must name the model per call, not per run."""
     a1, a2, defensive, greedy = analysis_replies("BULLISH", LONG_MAGNET, "GO LONG", "GO LONG")
     gemini.script = [a1, RuntimeError("primary unavailable"), a2, defensive, greedy]
 
@@ -80,7 +80,7 @@ def test_models_used_names_the_model_for_each_agent_call(run_cli, gemini, tmp_pa
         assert metadata["models_used"] == {
             "agent_1_technical": PRIMARY_MODEL,
             "agent_2_volume": FALLBACK_MODEL,
-            f"agent_3_{strategy}": PRIMARY_MODEL,
+            f"agent_3_{strategy}": FALLBACK_MODEL,  # the primary already failed this run
         }
 
 

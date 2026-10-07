@@ -141,7 +141,7 @@ def ask(question: str):
 
     try:
         # Initialize the Google GenAI client
-        client = genai.Client(api_key=api_key)
+        client = agents.make_client(api_key)
 
         typer.secho(f"Thinking...", fg=typer.colors.YELLOW)
 

@@ -13,8 +13,9 @@ def test_primary_failure_uses_fallback_and_routes_the_run_to_output_beta(run_cli
     out = run_cli("analyze")
 
     assert out.exit_code == 0, out.output
-    # Only Agent 1 fell back; later agents try the primary again and succeed.
-    assert gemini.models_used() == [PRIMARY_MODEL, FALLBACK_MODEL, PRIMARY_MODEL, PRIMARY_MODEL, PRIMARY_MODEL]
+    # Once the primary fails, the rest of the run goes straight to the fallback (changed 2026-10-07:
+    # later agents used to try the dead primary again, wasting a quota call each).
+    assert gemini.models_used() == [PRIMARY_MODEL, FALLBACK_MODEL, FALLBACK_MODEL, FALLBACK_MODEL, FALLBACK_MODEL]
     # The primary and the fallback receive the identical prompt.
     assert gemini.calls[0]["contents"] == gemini.calls[1]["contents"]
     # One fallback anywhere moves the whole run, both strategies, to output_beta.
@@ -24,8 +25,8 @@ def test_primary_failure_uses_fallback_and_routes_the_run_to_output_beta(run_cli
     record = read_json(tmp_path / written[0])
     assert record["metadata"]["models_used"] == {
         "agent_1_technical": FALLBACK_MODEL,
-        "agent_2_volume": PRIMARY_MODEL,
-        "agent_3_defensive": PRIMARY_MODEL,
+        "agent_2_volume": FALLBACK_MODEL,
+        "agent_3_defensive": FALLBACK_MODEL,
     }
     health = (tmp_path / "logs" / "system_health.log").read_text(encoding="utf-8")
     snapshot("fallback_system_health.log", health)
@@ -62,8 +63,10 @@ def test_both_models_failing_on_defensive_manager_still_runs_greedy_then_exits_1
     out = run_cli("analyze")
 
     assert out.exit_code == 1, out.output
+    # Greedy is answered by the fallback (the primary already failed this run), so it lands in output_beta.
+    assert gemini.models_used() == [PRIMARY_MODEL, PRIMARY_MODEL, PRIMARY_MODEL, FALLBACK_MODEL, FALLBACK_MODEL]
     written = [f.split("/")[0:3] for f in files_under(tmp_path) if f.startswith("output_")]
-    assert written == [["output_alpha", "analyze", "greedy"]]
+    assert written == [["output_beta", "analyze", "greedy"]]
 
 
 def test_invalid_json_reply_exits_1_without_writing(run_cli, gemini, tmp_path):
