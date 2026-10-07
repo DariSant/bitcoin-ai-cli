@@ -15,6 +15,11 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 ## 2026-10-07
 
 ### Fixed
+- **`mock` now checks the real Operator math** (branch `fix/mock-uses-operator-math`; `TODO.md` Phase 1 item ticked, M1.6). It had its own copy of the stop rule without operate's 1-ATR floor, so it could show a ticket `operate` would never produce.
+  - `mock` now calls `trade_operator.compute_order`, and the duplicate `compute_mock_order` is removed.
+  - New `mock_json/mock_floor.json`, where the floor decides: SL 69,000, size $7,000. The old mock showed SL 69,400 and $11,667.
+  - `mock_long` and `mock_short` print exactly as before.
+  - `mock` writes nothing and opens no trade, so no `strategy_version` bump. 3 new tests check that mock and operate give the same ticket (184 in total).
 - **Binance calls are retried, and an outage no longer stops the whole run** (branch `fix/binance-retries`; `TODO.md` Phase 2 item ticked, M1.5). Before, every fetch created a new exchange object with no timeout, which also downloaded Binance's market list again each time. One network error while checking an open trade printed the raw exception and stopped the run.
   - **Shared client:** one exchange object per process, with a 15 s timeout and ccxt's rate limiting.
   - **Retries:** temporary network errors (`ccxt.NetworkError`: timeouts, rate limits, maintenance) are retried after 2 s and 4 s, at most 3 attempts. Permanent errors (`ExchangeError`: bad symbol or request) are not retried.

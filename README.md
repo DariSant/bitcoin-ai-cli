@@ -281,11 +281,12 @@ $env:UPDATE_SNAPSHOTS = "1"; uv run pytest; Remove-Item Env:UPDATE_SNAPSHOTS
 git diff tests/characterization/snapshots
 ```
 
-To check the Operator's trade math without using the AI or internet:
+To check the Operator's trade math without using the AI or internet (it uses exactly the same math as `operate`):
 
 ```powershell
 uv run app.py mock mock_long.json
 uv run app.py mock mock_short.json
+uv run app.py mock mock_floor.json   # the 1-ATR stop floor decides: SL 69,000, size $7,000
 ```
 
 A mock file must contain: `verdict`, `account_balance_usdt`, `risk_per_trade_percent`, `current_price`, `atr_14`, `agent_1_threat_level`, `agent_2_magnet_target`.

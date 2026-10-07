@@ -47,7 +47,7 @@ Sections 1–4 below are the original audit of 2026-10-04, kept for its evidence
 3. ~~**Gemini error handling**~~ Done 2026-10-07 (`fix/gemini-error-handling`).
 4. ~~**Validate AI replies**~~ Done 2026-10-07 (`fix/validate-ai-replies`).
 5. ~~**Binance retries**~~ Done 2026-10-07 (`fix/binance-retries`). M2.1 reuses `data.with_retries` for paginated fetches.
-6. **`mock` uses `compute_order`**, so it tests the real math (Phase 1, S). `mock` affects no trade, so no version bump is needed, but its snapshot changes on purpose.
+6. ~~**`mock` uses `compute_order`**~~ Done 2026-10-07 (`fix/mock-uses-operator-math`). The existing mock snapshots didn't change; the floor isn't the deciding value in those files.
 7. **`operate` picks the analysis by its own UTC timestamp** from the current month only, not by file modification time across every month (Phase 2 P2, S).
 8. ~~**`.gitattributes`**~~ Done 2026-10-07 (`chore/gitattributes`).
 
@@ -268,7 +268,7 @@ These answers (full text in section 4) are now built into the items below.
     - Store `equity_before`, `risk_usd` and `r_multiple = pnl_net / risk_usd` on each trade. Because the two strategies' balances will drift apart, compare them in the report by R multiples, not dollars.
   - Done when: after a recorded loss, the next ticket's `risk_usd` is 1% of the new, lower equity, and a test checks this.
 
-- [ ] **[P1] The `mock` command tests different math from the real operator** — Confirmed — Effort: S
+- [x] **[P1] The `mock` command tests different math from the real operator** — Confirmed — Effort: S
   - Where: `app.py:L834-L856` vs `L628-L716`
   - Problem: `mock` has no volatility floor. With price 70,000, ATR 1,000 and threat 69,900, the probe got:
     - real operator: SL **69,000**, size **$7,000**
@@ -276,6 +276,7 @@ These answers (full text in section 4) are now built into the items below.
     - The two mock files that ship with the project do not show this, because there the floor is not the deciding value.
   - Fix: move the order math into one pure function, `compute_order(verdict, price, atr, threat, target, equity, risk_pct, ...)`, that returns either a ticket or a rejection reason. Call it from both `operate` and `mock`. Add a `mock_json/mock_floor.json` case.
   - Done when: `mock` and `operate` give the same ticket for the same inputs, checked by a test.
+  - Status (2026-10-07): done on branch `fix/mock-uses-operator-math`. `mock` calls `trade_operator.compute_order`, and the duplicate `compute_mock_order` is gone. The new `mock_json/mock_floor.json` shows SL 69,000 and size $7,000; the old mock gave SL 69,400 and $11,667. The future equity and risk-% arguments come with the Phase 1 sizing item. `mock_long` and `mock_short` print exactly as before.
 
 - [ ] **[P1] The same analysis can be traded twice** — Confirmed — Effort: S
   - Where: `app.py:L549-L579`
