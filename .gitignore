@@ -6,3 +6,4 @@ output_alpha/
 output_beta/
 logs/
 venv/
+*.egg-info/
