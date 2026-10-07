@@ -19,6 +19,10 @@ market_type = "spot"           # must match exchange_id; written into every reco
 analysis_candles = 200         # candles fetched per timeframe (4h and 15m) for the indicators
 resolution_candles = 100       # 15m candles fetched to resolve an open trade (100 = 25 hours)
 
+[exchange_requests]  # not frozen: how market-data calls are retried, not which data is used
+timeout_seconds = 15           # one request
+max_attempts = 3               # 1 to 3; only temporary network errors are retried (AGENTS.md §5)
+
 [gemini]  # [frozen]
 # The primary model is tried first; see [gemini_requests] for when a call switches to the fallback.
 primary_model = "gemini-3.5-flash-lite"

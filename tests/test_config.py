@@ -31,7 +31,11 @@ FROZEN_0_1 = dict(
     risk_per_trade_percent=1.0,
 )
 # Settings that change where files go or how calls are retried, not which trades are taken.
-NOT_FROZEN = {"data_dir", "gemini_timeout_seconds", "gemini_max_attempts", "gemini_max_retry_wait_seconds"}
+NOT_FROZEN = {
+    "data_dir",
+    "exchange_timeout_seconds", "exchange_max_attempts",
+    "gemini_timeout_seconds", "gemini_max_attempts", "gemini_max_retry_wait_seconds",
+}
 
 
 def raw_settings() -> dict:
@@ -86,6 +90,8 @@ def test_an_int_is_accepted_where_a_float_is_expected():
         ("indicators", "value_area_share", 1.5, "at most 1"),
         ("indicators", "volume_profile_bins", 0, "greater than 0"),
         ("gemini_requests", "max_attempts", 4, "at most 3"),
+        ("exchange_requests", "max_attempts", 0, "at least 1"),
+        ("exchange_requests", "timeout_seconds", 0, "greater than 0"),
         ("gemini_requests", "max_attempts", 0, "at least 1"),
         ("gemini_requests", "timeout_seconds", 0, "greater than 0"),
         ("gemini_requests", "max_retry_wait_seconds", -1, "at least 0"),

@@ -34,6 +34,12 @@ class Position(enum.Enum):
     FREE = "free"  # no open trade: the strategy may trade
     OPEN = "open"  # an open trade blocks new ones until it is resolved
     DAMAGED = "damaged"  # a damaged ledger or history blocks new ones; the command exits 1
+    UNCHECKED = "unchecked"  # market data to check the open trade was unavailable; it stays open, the command exits 1
+
+    @property
+    def failed(self) -> bool:
+        """True when the strategy is blocked by a problem the command must report with exit 1."""
+        return self in (Position.DAMAGED, Position.UNCHECKED)
 
 
 def _block_on_damaged_record(strategy: str, kind: str, error: storage.DamagedRecordError) -> Position:
@@ -74,9 +80,14 @@ def check_open_positions(symbol: str, strategy: str) -> Position:
 
     try:
         ohlcv = data.fetch_resolution_candles(symbol)
-    except Exception as e:
-        typer.secho(f"\n❌ Error fetching data to verify open positions: {e}", fg=typer.colors.RED)
-        raise typer.Exit(code=1)
+    except data.MarketDataError as e:
+        # Never guess: the trade stays open and is checked again next run (AGENTS.md §2.6).
+        logging.error(f"Could not fetch candles to check the open {strategy} trade", exc_info=True)
+        console.print(
+            f"[bold red]❌ Could not fetch market data to check the open {strategy.upper()} trade ({type(e.__cause__).__name__}). "
+            f"It stays open and is checked again next run. Details in error.log.[/bold red]"
+        )
+        return Position.UNCHECKED
 
     exit_ = ledger.find_exit(trade, ohlcv)
 
@@ -172,11 +183,11 @@ def _reject_ticket(final_verdict: str, current_price, threat_level, magnet_targe
 def run_operate(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool = True) -> bool:
     """
     Execute trading operations based on recent analysis.
-    Returns True if a damaged ledger or history blocked a strategy (the CLI then exits 1).
+    Returns True if a damaged ledger or history, or unavailable market data, blocked a strategy (the CLI then exits 1).
     """
     positions = {s: check_open_positions(symbol, s) for s, wanted in (("defensive", run_def), ("greedy", run_greed)) if wanted}
     strategies_to_run = [s for s, position in positions.items() if position is Position.FREE]
-    damaged = Position.DAMAGED in positions.values()
+    damaged = any(position.failed for position in positions.values())
 
     # Known P2 issue: operate never calls Gemini but still requires the key and a client.
     api_key = os.getenv("GEMINI_API_KEY")
@@ -435,7 +446,7 @@ def run_analyze(symbol: str = 'BTC/USDT', run_def: bool = True, run_greed: bool 
     greed_position = check_open_positions(symbol, "greedy") if run_greed else None
     skip_def = def_position is not Position.FREE
     skip_greed = greed_position is not Position.FREE
-    failed = Position.DAMAGED in (def_position, greed_position)
+    failed = any(position is not None and position.failed for position in (def_position, greed_position))
 
     # If every requested strategy already has an open trade, there is nothing to analyze.
     # Stop here so we don't waste AI calls on Agents 1 and 2 whose reports would be thrown away.

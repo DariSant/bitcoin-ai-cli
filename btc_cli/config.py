@@ -29,6 +29,8 @@ class Settings:
     market_type: str
     analysis_candles: int
     resolution_candles: int
+    exchange_timeout_seconds: int
+    exchange_max_attempts: int
     primary_model: str
     fallback_model: str
     gemini_timeout_seconds: int
@@ -82,6 +84,8 @@ def parse_settings(raw: dict[str, Any]) -> Settings:
         market_type=_value(raw, "market", "market_type", str),
         analysis_candles=_in_range(raw, "market", "analysis_candles", int, 0),
         resolution_candles=_in_range(raw, "market", "resolution_candles", int, 0),
+        exchange_timeout_seconds=_in_range(raw, "exchange_requests", "timeout_seconds", int, 0),
+        exchange_max_attempts=_in_range(raw, "exchange_requests", "max_attempts", int, 1, 3, low_inclusive=True),
         primary_model=_value(raw, "gemini", "primary_model", str),
         fallback_model=_value(raw, "gemini", "fallback_model", str),
         gemini_timeout_seconds=_in_range(raw, "gemini_requests", "timeout_seconds", int, 0),
@@ -146,6 +150,10 @@ EXCHANGE_ID = _settings.exchange_id
 MARKET_TYPE = _settings.market_type
 ANALYSIS_CANDLES = _settings.analysis_candles
 RESOLUTION_CANDLES = _settings.resolution_candles
+
+# [exchange_requests]
+EXCHANGE_TIMEOUT_SECONDS = _settings.exchange_timeout_seconds
+EXCHANGE_MAX_ATTEMPTS = _settings.exchange_max_attempts
 
 # [gemini]
 PRIMARY_MODEL = _settings.primary_model
