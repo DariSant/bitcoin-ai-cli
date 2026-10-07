@@ -60,7 +60,11 @@ Each run moves through four stages:
 ### AI Agents
 - All agents must reply in **strict JSON** (enforced with Python `TypedDict` schemas through Gemini's `response_schema`), so the AI can't wander off into chat.
 - Each agent gives a bias: `STRONGLY_BULLISH`, `BULLISH`, `NEUTRAL`, `BEARISH`, or `STRONGLY_BEARISH`.
-- **Model fallback:** every request goes to `gemini-3.5-flash-lite` first. If that model is down, it switches instantly to `gemini-2.5-flash`, logs the incident to `logs/system_health.log`, and saves that run's data to `output_beta/` instead of `output_alpha/` so backup-model results don't mix with the main results.
+- **Model fallback:** every request goes to `gemini-3.5-flash-lite` first, with a 60-second timeout.
+  - **Temporary problems** (server errors, timeouts, rate limits with a short wait) are retried, at most 3 attempts per model; every attempt counts against the daily quota.
+  - **If the model still fails**, or no longer exists, the call switches to `gemini-2.5-flash`. The switch is logged to `logs/system_health.log`, the rest of that run uses the backup model, and the run's data is saved to `output_beta/` instead of `output_alpha/`.
+  - **A bad request, API key or permission** (HTTP 400/401/403) stops the run with exit code 1 instead, because the backup would fail the same way.
+  - Every record names the model that answered each agent.
 
 ### The Operator (Python risk math)
 - Order type: **MARKET**, entering at the current 15m price.
@@ -145,7 +149,7 @@ To add a new library later, always use `uv add <library>` (for example `uv add n
 
 ### Settings (`config.toml`)
 
-Every non-secret setting lives in `config.toml` in the project folder: the exchange and market, the AI models, candle counts, indicator settings, and the Operator's risk numbers. The program checks it at start-up and stops with a one-line message naming any missing or impossible value (for example `[operator] risk_usd must be greater than 0`).
+Every non-secret setting lives in `config.toml` in the project folder: the exchange and market, the AI models and how their calls are retried (`[gemini_requests]`), candle counts, indicator settings, and the Operator's risk numbers. The program checks it at start-up and stops with a one-line message naming any missing or impossible value (for example `[operator] risk_usd must be greater than 0`).
 
 Sections marked `[frozen]` decide which trades are taken or how they are scored. Changing one splits the paper-trading data into a new strategy version, so it needs the owner's approval, a `STRATEGY_VERSION` bump in `btc_cli/config.py` and a `CHANGELOG.md` entry. A test (`tests/test_config.py`) fails on any change to remind you. Your API key never goes in `config.toml`; it stays in `.env`.
 
@@ -169,7 +173,7 @@ Every command starts with `uv run app.py`. `SYMBOL` is optional and defaults to 
 
 **One run at a time.** `status`, `analyze`, `operate` and `auto` take a lock on the data folder (`run.lock`). If another of these is still running, for example a scheduled run and a manual one, the second one prints who holds the lock, does nothing, and exits with code 3. The operating system releases the lock as soon as the first run ends, even if it crashed, so you never need to delete `run.lock`. `mock`, `ask` and `commands` don't take the lock.
 
-**Exit codes:** `0` success · `1` an error, including a damaged ledger or history file · `2` wrong command-line usage · `3` another run is in progress, nothing was done.
+**Exit codes:** `0` success · `1` an error, including a damaged ledger or history file, or neither AI model answering · `2` wrong command-line usage · `3` another run is in progress, nothing was done.
 
 ### Examples
 
@@ -277,11 +281,12 @@ $env:UPDATE_SNAPSHOTS = "1"; uv run pytest; Remove-Item Env:UPDATE_SNAPSHOTS
 git diff tests/characterization/snapshots
 ```
 
-To check the Operator's trade math without using the AI or internet:
+To check the Operator's trade math without using the AI or internet (it uses exactly the same math as `operate`):
 
 ```powershell
 uv run app.py mock mock_long.json
 uv run app.py mock mock_short.json
+uv run app.py mock mock_floor.json   # the 1-ATR stop floor decides: SL 69,000, size $7,000
 ```
 
 A mock file must contain: `verdict`, `account_balance_usdt`, `risk_per_trade_percent`, `current_price`, `atr_14`, `agent_1_threat_level`, `agent_2_magnet_target`.

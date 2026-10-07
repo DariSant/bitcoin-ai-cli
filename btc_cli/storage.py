@@ -10,7 +10,7 @@ import json
 import os
 import pathlib
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from btc_cli import config
 
@@ -156,24 +156,47 @@ def log_execution(command_name: str, strategy: str, symbol: str, data_4h: dict, 
     return filepath
 
 
-def analysis_files(strategy: str) -> list[pathlib.Path]:
-    """Every saved analysis for a strategy, across all months (unbounded, see TODO.md)."""
-    analyze_dir = pathlib.Path(config.BASE_DIR) / "analyze" / strategy
-    if not analyze_dir.exists():
-        return []
-    return list(analyze_dir.rglob("*.json"))
+# File names start with the naive local time they were written; this margin covers a clock change.
+_NAME_TIME_MARGIN = timedelta(hours=1)
 
 
-def latest_analysis_for_symbol(json_files: list[pathlib.Path], symbol: str) -> pathlib.Path | None:
-    """The symbol's analysis with the newest file modification time, or None."""
-    # Filter files for the requested symbol
-    symbol_files = [f for f in json_files if symbol.replace("/", "") in f.name]
-    if not symbol_files:
+def _recorded_time(path: pathlib.Path) -> datetime:
+    """When an analysis says it was written, as an aware UTC time; the earliest possible time if unreadable.
+
+    Uses `timestamp_utc`, or the legacy local `timestamp` for records written before versioning.
+    """
+    try:
+        metadata = read_analysis(path).get("metadata", {})
+        if metadata.get("timestamp_utc"):
+            return datetime.fromisoformat(metadata["timestamp_utc"].replace("Z", "+00:00"))
+        stamp = datetime.fromisoformat(metadata["timestamp"])
+        return stamp if stamp.tzinfo else stamp.astimezone()
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
+        # operate reads the chosen file again and reports a damaged one; here it just loses the comparison.
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def latest_analysis(strategy: str, symbol: str, now_utc: datetime, max_age_seconds: int) -> pathlib.Path | None:
+    """The symbol's newest analysis by its own recorded time, or None if there is none recently.
+
+    Bounded work on the server (TODO.md "operate scans every saved analysis"): only the month folders
+    the freshness window touches are listed (at most two), and only files whose name falls inside the
+    window (plus an hour for clock changes) are opened. If none is that recent, the newest by name is
+    returned, so operate can report it as stale. File modification times are never used: a backup
+    restore or copy changes them.
+    """
+    now_local = local_now(now_utc)
+    oldest_local = local_now(now_utc - timedelta(seconds=max_age_seconds))
+    base = pathlib.Path(config.BASE_DIR) / "analyze" / strategy
+    months = sorted({oldest_local.strftime("%Y-%m"), now_local.strftime("%Y-%m")})
+    files = [f for month in months for f in (base / month).glob("*.json") if symbol.replace("/", "") in f.name]
+    if not files:
         return None
-
-    # Sort files by modification time descending to get the most recent one
-    symbol_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-    return symbol_files[0]
+    cutoff = (oldest_local - _NAME_TIME_MARGIN).strftime("%Y%m%d_%H%M%S")
+    recent = [f for f in files if f.name[:15] >= cutoff]
+    if not recent:
+        return max(files, key=lambda f: f.name)
+    return max(recent, key=lambda f: (_recorded_time(f), f.name))
 
 
 def read_analysis(path: pathlib.Path) -> dict:

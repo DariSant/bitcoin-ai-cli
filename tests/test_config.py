@@ -12,9 +12,8 @@ import pytest
 
 from btc_cli import config
 
-# The values hardcoded before they moved to config.toml (strategy_version "0.1").
-FROZEN_0_1 = config.Settings(
-    data_dir=".",  # not frozen; the guard below ignores it
+# The frozen values (AGENTS.md §2.4) as they were hardcoded before config.toml (strategy_version "0.1").
+FROZEN_0_1 = dict(
     exchange_id="binance",
     market_type="spot",
     analysis_candles=200,
@@ -31,6 +30,12 @@ FROZEN_0_1 = config.Settings(
     account_balance_usdt=10000.0,
     risk_per_trade_percent=1.0,
 )
+# Settings that change where files go or how calls are retried, not which trades are taken.
+NOT_FROZEN = {
+    "data_dir",
+    "exchange_timeout_seconds", "exchange_max_attempts",
+    "gemini_timeout_seconds", "gemini_max_attempts", "gemini_max_retry_wait_seconds",
+}
 
 
 def raw_settings() -> dict:
@@ -45,12 +50,20 @@ def test_config_toml_holds_the_strategy_0_1_values():
     owner's approval, a STRATEGY_VERSION bump and a CHANGELOG entry. Then update this test.
     """
     assert config.STRATEGY_VERSION == "0.1"
-    assert dataclasses.replace(config.load_settings(), data_dir=".") == FROZEN_0_1
+    settings = dataclasses.asdict(config.load_settings())
+    assert {k: v for k, v in settings.items() if k not in NOT_FROZEN} == FROZEN_0_1
+
+
+def test_every_setting_is_classified_as_frozen_or_not():
+    """A new setting must be added to FROZEN_0_1 or NOT_FROZEN, so the guard can't silently miss it."""
+    fields = {f.name for f in dataclasses.fields(config.Settings)}
+    assert fields == set(FROZEN_0_1) | NOT_FROZEN
+    assert not set(FROZEN_0_1) & NOT_FROZEN
 
 
 def test_module_constants_mirror_the_settings():
     assert (config.EXCHANGE_ID, config.MARKET_TYPE) == ("binance", "spot")
-    assert (config.PRIMARY_MODEL, config.FALLBACK_MODEL) == (FROZEN_0_1.primary_model, FROZEN_0_1.fallback_model)
+    assert (config.PRIMARY_MODEL, config.FALLBACK_MODEL) == (FROZEN_0_1["primary_model"], FROZEN_0_1["fallback_model"])
     assert config.RISK_USD == 100.0 and type(config.RISK_USD) is float
     assert config.VALUE_AREA_SHARE == 0.70
     assert config.ANALYSIS_MAX_AGE_SECONDS == 600
@@ -76,6 +89,12 @@ def test_an_int_is_accepted_where_a_float_is_expected():
         ("market", "exchange_id", "  ", "must not be empty"),
         ("indicators", "value_area_share", 1.5, "at most 1"),
         ("indicators", "volume_profile_bins", 0, "greater than 0"),
+        ("gemini_requests", "max_attempts", 4, "at most 3"),
+        ("exchange_requests", "max_attempts", 0, "at least 1"),
+        ("exchange_requests", "timeout_seconds", 0, "greater than 0"),
+        ("gemini_requests", "max_attempts", 0, "at least 1"),
+        ("gemini_requests", "timeout_seconds", 0, "greater than 0"),
+        ("gemini_requests", "max_retry_wait_seconds", -1, "at least 0"),
     ],
 )
 def test_impossible_values_are_rejected_with_a_clear_message(section, key, value, message):

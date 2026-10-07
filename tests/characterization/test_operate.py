@@ -109,7 +109,8 @@ def test_operate_requires_gemini_key_it_never_uses(run_cli, gemini, monkeypatch,
     assert gemini.calls == []
 
 
-def test_operate_picks_the_analysis_by_file_mtime_not_by_name(run_cli, gemini, clock, tmp_path):
+def test_operate_picks_the_analysis_by_its_recorded_time_not_file_mtime(run_cli, gemini, clock, tmp_path):
+    """Fixed 2026-10-07: a newer file modification time (e.g. after a restore) used to win over the newer analysis."""
     analyze_def(run_cli, gemini, "SIT ON HANDS", LONG_MAGNET)
     clock.advance(60)
     analyze_def(run_cli, gemini, "GO LONG", LONG_MAGNET)
@@ -119,8 +120,8 @@ def test_operate_picks_the_analysis_by_file_mtime_not_by_name(run_cli, gemini, c
 
     out = run_cli("operate", "--def")
 
-    assert "Defensive Verdict: SIT ON HANDS. Bypassing execution." in out.output
-    assert not tmp_path.joinpath(*LEDGER).exists()
+    assert "Proceeding to Agent 4 Execution for DEFENSIVE Strategy" in out.output
+    assert tmp_path.joinpath(*LEDGER).exists()
 
 
 def test_flags_select_one_strategy_and_both_flags_are_refused(run_cli, gemini, tmp_path):
