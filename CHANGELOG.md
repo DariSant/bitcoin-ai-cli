@@ -15,6 +15,7 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 ## 2026-10-07
 
 ### Decisions (owner)
+- **Synthetic market data.** Create a `synthetic_data/` folder with an implementation plan and a README, to be reviewed later, and add the work to the roadmap. Nothing is implemented yet.
 - **Two modules added to the `btc_cli/` layout:**
   - `pipeline.py` holds the status / analyze / operate / mock flows, so `cli.py` keeps only commands and display.
   - `console.py` holds the shared console and panels, so no module has to import the CLI.
@@ -34,6 +35,8 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 - `main.py` (unused starter stub) and `bitcoin_ai_cli.egg-info/` (old build leftover). Part of the `TODO.md` cleanup item, which stays open for the `requests` decision and two small code items.
 
 ### Added
+- `synthetic_data/README.md` and `synthetic_data/PLAN.md`: the purpose, rules, data format and step-by-step plan for synthetic data. It is for testing the rules (resolution, costs, activity gate, a no-edge check), not for measuring the AI's edge.
+- `TODO.md`: new Phase 1 item "Synthetic market data for testing the rules". `README.md`: the folder is listed as planned.
 - **Characterization tests (Phase 0, step 1)** on branch `test/characterization-tests`. There are 43 offline tests that record exactly what the tool does today, so the `app.py` split can prove it changed nothing.
   - They drive the real CLI (`status`, `analyze`, `operate`, `auto`, `mock`, `commands`, `ask`) with a fake exchange serving saved candles (`tests/fixtures/`), a fake Gemini client with canned replies, and a frozen clock.
   - They capture the indicator values, the exact prompt sent to each agent, the analysis, ticket, ledger and history files for a long, a short and a `SIT ON HANDS` case, trade resolution, model fallback routing, and the console output. Expected outputs are in `tests/characterization/snapshots/`.

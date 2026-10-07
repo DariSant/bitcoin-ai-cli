@@ -262,6 +262,7 @@ A mock file must contain: `verdict`, `account_balance_usdt`, `risk_per_trade_per
 | `AGENTS.md` | Instructions for AI coding assistants working on this repo |
 | `CHANGELOG.md` | **Record of every change and decision**, newest first. Read this to see what changed and why. |
 | `TODO.md` | Audit findings and the phased roadmap of work still to do |
+| `synthetic_data/` | **Planned.** Generated Bitcoin-like data for testing the trading rules offline. See its `README.md` and `PLAN.md` |
 | `research/` | Study scripts and their dated reports. Run `uv run research/activity_gate_study.py` monthly to re-check the activity gate thresholds |
 
 ---

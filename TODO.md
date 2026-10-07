@@ -325,6 +325,18 @@ These answers (full text in section 4) are now built into the items below.
     - a gated run makes **no** Gemini calls and records the reason
     - the README explains the gate and the monthly re-check in plain words
 
+- [ ] **[P1] Synthetic market data for testing the rules** — Planned (owner request 2026-10-07; plan awaiting review) — Effort: M–L
+  - Where: new folder `synthetic_data/` (plan: [`synthetic_data/PLAN.md`](synthetic_data/PLAN.md), overview: [`synthetic_data/README.md`](synthetic_data/README.md))
+  - Problem: the Phase 1 resolution, cost and gate fixes need price paths with known correct answers, and there is no way to check the rules for hidden bugs or look-ahead without spending AI calls.
+  - Fix:
+    - Reproducible, Bitcoin-like 1m candles (15m/4h built from them), ticks only where needed, and funding.
+    - Two generators: a block bootstrap of real public BTC history first, then a calibrated regime-switching model.
+    - Hand-made scenarios with expected outcomes for `tests/`.
+    - A no-edge walk-forward check in `research/` with a rule-based stand-in verdict and no Gemini calls.
+    - Never written to `output_alpha/`, and never counted as performance.
+  - Order: steps 1–2 of the plan (format, builders, resolution scenarios) go with the 1m/tick resolution items above. Steps 3–6 (calibration, generators, no-edge check) can follow.
+  - Done when: the owner has approved the plan, the resolution items above are tested against `synthetic_data/scenarios/`, and a 3-year no-edge run reports an average R consistent with −costs.
+
 ### Phase 2 – Robustness (errors, retries, state safety, tests)
 
 - [x] **[P0] Commit the model-name fix that is sitting uncommitted** — Confirmed — Effort: S
@@ -673,7 +685,7 @@ These answers (full text in section 4) are now built into the items below.
 ### Later / nice to have
 
 - [ ] **[P2] Partial exits and trailing stops** (already on the README roadmap). Only after fees and resolution are correct. — Effort: M
-- [ ] **[P2] Replay test for the rules (backtest).** Replay stored candles through `compute_order` and `resolve_trade` to test stop and target rules without spending AI calls. The AI part cannot be backtested honestly, because the model may have seen that price history in training. — Effort: L
+- [ ] **[P2] Replay test for the rules (backtest).** Replay stored candles through `compute_order` and `resolve_trade` to test stop and target rules without spending AI calls. The AI part cannot be backtested honestly, because the model may have seen that price history in training. The synthetic-data item in Phase 1 covers the rules part of this on generated data. — Effort: L
 - [ ] **[P2] Feedback loop** that gives the agents their past results (README roadmap). Only after you have 100+ trades and a baseline. — Effort: L
 - [ ] **[P2] Multiple symbols** once the rounding and per-symbol settings are fixed. — Effort: M
 
