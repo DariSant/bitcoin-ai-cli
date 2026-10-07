@@ -14,6 +14,13 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 
 ## 2026-10-07
 
+### Fixed
+- **A total AI failure no longer exits with "success"** (branch `fix/ai-failure-exit-code`; `TODO.md` Phase 2 item ticked, M1.2). Before, "Both models unreachable" printed a message but exited 0, so a scheduler or heartbeat would have counted the run as a success.
+  - `analyze` and `auto` now exit 1 when neither model answers, whether for Agent 1, Agent 2 or one strategy's Agent 3.
+  - The other strategy still runs, and `auto` still runs `operate`, so open trades are still resolved.
+  - `ask` now exits 1 when both models are down or on a Gemini API error. Its broad `except Exception` used to catch its own exit, and errors are now logged.
+  - No trade decision changes, so no `strategy_version` bump. Three characterization tests that pinned the old exit 0 were updated; two tests are new (139 in total).
+
 ### Maintenance
 - **`.gitattributes`** (`* text=auto eol=lf`, branch `chore/gitattributes`; `TODO.md` line-ending item ticked, M1.8). Git now keeps LF line endings on Windows too, so the "LF will be replaced by CRLF" warnings stop and the Windows and Linux copies match. Every tracked file was already stored with LF, so no content changed.
 

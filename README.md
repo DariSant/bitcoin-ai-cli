@@ -169,7 +169,7 @@ Every command starts with `uv run app.py`. `SYMBOL` is optional and defaults to 
 
 **One run at a time.** `status`, `analyze`, `operate` and `auto` take a lock on the data folder (`run.lock`). If another of these is still running, for example a scheduled run and a manual one, the second one prints who holds the lock, does nothing, and exits with code 3. The operating system releases the lock as soon as the first run ends, even if it crashed, so you never need to delete `run.lock`. `mock`, `ask` and `commands` don't take the lock.
 
-**Exit codes:** `0` success · `1` an error, including a damaged ledger or history file · `2` wrong command-line usage · `3` another run is in progress, nothing was done.
+**Exit codes:** `0` success · `1` an error, including a damaged ledger or history file, or neither AI model answering · `2` wrong command-line usage · `3` another run is in progress, nothing was done.
 
 ### Examples
 

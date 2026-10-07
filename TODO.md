@@ -43,7 +43,7 @@ Sections 1–4 below are the original audit of 2026-10-04, kept for its evidence
 
 **M1. Robustness groundwork (no trade changes, no version bump; the agent can do these without asking).** About 2 days.
 1. ~~**Tick-data study**~~ Done 2026-10-07: feasible at any age. Binance REST covers 48 h, the daily archive covers everything older, and the data is complete. Recommended backup: OKX. See the Phase 1 same-candle item and `research/results/tick_data_2026-10-07.md`.
-2. **Total AI failure exits non-zero**, including `ask` (Phase 2, S).
+2. ~~**Total AI failure exits non-zero**~~ Done 2026-10-07 (`fix/ai-failure-exit-code`).
 3. **Gemini error handling:** timeout, retries for 429/5xx, no fallback on 400/401/403, both errors logged, and the backup used for the rest of the run once the primary fails (Phase 2, M).
 4. **Validate AI replies** with `pydantic` (approved): a bad reply skips only that strategy and is logged (Phase 2, M).
 5. **Binance retries** and one shared exchange object with a timeout (Phase 2, S). M2.1 extends this helper.
@@ -473,12 +473,13 @@ These answers (full text in section 4) are now built into the items below.
     - Once the primary fails in a run, use the backup for the remaining agents.
   - Done when: tests with a fake client cover 401 (no fallback, clear message), 429 then success (retry, no fallback), and 500 ×3 (fallback, both errors logged).
 
-- [ ] **[P1] Total AI failure exits with "success" (exit code 0)** — Confirmed — Effort: S
+- [x] **[P1] Total AI failure exits with "success" (exit code 0)** — Confirmed — Effort: S
   - Where: `app.py:L970-L972`, `L1029-L1031`, `L1096-L1102`, `L1167-L1169`
   - Problem: "Both models unreachable" prints a message and `return`s, so the process exit code is 0. A scheduler or monitor will think the run succeeded.
   - Fix: `raise typer.Exit(code=2)` (or another non-zero code) after printing.
   - Also (found 2026-10-07): `ask` exits 0 for the same failure, because its broad `except Exception` catches its own `typer.Exit` (Click's `Exit` is a `RuntimeError`) and prints "An unexpected error occurred: ". Pinned by `test_ask_with_both_models_down_exits_0`.
   - Done when: a test with both models failing gets a non-zero exit code.
+  - Status (2026-10-07): done on branch `fix/ai-failure-exit-code`. `analyze` and `auto` exit 1 when neither model answers, for Agent 1, Agent 2 or one strategy's Agent 3. The other strategy still runs, and `auto` still runs `operate`, so open trades are resolved. `ask` exits 1 when both models are down or on a Gemini API error. Exit 1 rather than 2, because the README reserves 2 for usage mistakes.
 
 - [ ] **[P1] AI responses are not validated** — Confirmed — Effort: M
   - Where: `app.py:L978`, `L1037`, `L1108`, `L1175`, and `.get(…, 'NEUTRAL' / 'SIT ON HANDS')` defaults
