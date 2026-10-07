@@ -221,6 +221,23 @@ error.log                                     ← technical error details
 
 Analysis files are named like `20261002_143000_BTCUSDT_DEF_analysis.json` (date, time, symbol, strategy).
 
+### Versions and traceability in each record
+
+Every analysis, status, ticket, ledger and history record carries these fields (in `metadata` for analyses and tickets, at the top level for ledgers and history):
+
+| Field | Meaning |
+|---|---|
+| `schema_version` | Structure of the record. Currently `1`. Records without it are legacy (`0`). |
+| `strategy_version` | The trading rules in force when the record was written. `0.x` is warm-up data (before the Phase 1 fixes), `1.0` will be the first official version. Records without it are legacy (`0.0`). Never mix versions in one performance figure. |
+| `exchange`, `market_type` | Where the market data came from (today `binance`, `spot`). |
+| `timestamp_utc` / `entry_time_utc` | When the record was written / the trade was opened, in UTC. The older `timestamp` field is local time and kept as it was. |
+| `run_id` (analysis) | Unique id such as `20261002T123000Z-DEF-BTCUSDT`. |
+| `models_used` | The model that answered **each** agent call, e.g. `{"agent_1_technical": "...", "agent_2_volume": "...", "agent_3_defensive": "..."}`. Compare with `models_configured` to see which calls used the backup model. |
+| `trade_id`, `analysis_file`, `analysis_run_id` (tickets, ledger, history) | Which trade this is and the analysis that opened it. |
+| `resolved_at_utc`, `resolved_by_strategy_version` (history) | When the trade was closed and under which rules. The trade still counts under the version it was **opened** with. |
+
+Files written before these fields existed are never edited to add them; the program reads them as legacy.
+
 ---
 
 ## Testing

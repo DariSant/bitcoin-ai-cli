@@ -15,6 +15,10 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 ## 2026-10-07
 
 ### Decisions (owner)
+- **Phase 1 starts with record versioning** (the "Version every record" item), following the plan proposed in the conversation.
+  - **Version numbering:** `strategy_version` is a string. Legacy records = `"0.0"`, today's code = `"0.1"`. Each approved Phase 1 fix bumps `0.x`, and the first official version is `"1.0"`. Anything below `1.0` is warm-up data.
+  - **Rejections:** `operator_errors.log` stays free text for now. Rejections get a structured record in the Phase 4 item "Record every decision", together with the new Phase 1 rejection reasons.
+  - **Trades spanning a version change** record both versions (`strategy_version` at entry, `resolved_by_strategy_version` at close) and count under the version they were **opened** with.
 - **Synthetic market data.** Create a `synthetic_data/` folder with an implementation plan and a README, to be reviewed later, and add the work to the roadmap. Nothing is implemented yet.
   - Answers to the plan's questions:
     - Shuffled real history (block bootstrap) is the first generator.
@@ -28,6 +32,14 @@ The plan of work still to do lives in [TODO.md](TODO.md); this file records what
 - **Push to GitHub** once Phase 0 is finished.
 
 ### Changed
+- **Every record is now versioned and traceable** (`TODO.md` Phase 1, "Version every record") on branch `feat/record-versioning`. This is a record format change (`schema_version` 1). Trade decisions and resolution are unchanged, so `strategy_version` stays at its first value, `"0.1"` (warm-up).
+  - Analysis and status records (`metadata`) now include `schema_version`, `strategy_version`, `exchange`, `market_type`, `timestamp_utc`, `strategy` and `run_id`. Analyses also include `models_used`, the model that answered **each** agent call, and `models_configured`. Before this, a record didn't say which model produced it.
+  - Tickets, ledgers and history entries carry the same version and source fields, plus `trade_id`, `analysis_file` and `analysis_run_id`, so every trade links back to the analysis that opened it. Ledgers also gain `entry_time_utc`. History entries gain `resolved_at_utc` and `resolved_by_strategy_version`.
+  - Fields are only added, never renamed or removed. The local-time `timestamp` stays, because the 10-minute staleness check still reads it (separate TODO item).
+  - Files already in `output_alpha/` are not touched. Readers treat them as legacy (schema 0, strategy `"0.0"`) through `storage.schema_version_of` / `strategy_version_of`.
+  - `btc_cli/config.py` gains `SCHEMA_VERSION`, `STRATEGY_VERSION`, `EXCHANGE_ID` and `MARKET_TYPE`. `data.create_exchange()` now builds the exchange from `EXCHANGE_ID` (still `ccxt.binance()`), so a record can never name a different exchange than the one actually used.
+  - Tests: new `tests/test_storage.py` and `tests/test_pipeline.py` (90 tests in total, passing under three time zones). The four record snapshots were regenerated on purpose. A script confirmed that every old key and value survives unchanged and that no console or prompt snapshot changed. Three characterization tests were updated for the new fields. One of them used to pin "the record does not say which model produced it" and now checks `models_used`.
+  - `README.md`: new section "Versions and traceability in each record".
 - **`app.py` split into the `btc_cli/` package (Phase 0 is now complete)** on branch `refactor/btc-cli-package`. There is no behaviour change, so no `strategy_version` bump:
   - Every characterization test and snapshot passed unchanged.
   - Both `mock` commands, `commands` and every `--help` give byte-identical output before and after.
