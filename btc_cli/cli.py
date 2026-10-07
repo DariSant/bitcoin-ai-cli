@@ -70,7 +70,7 @@ def analyze_command(
     run_def, run_greed = _strategy_flags(def_flag, greed_flag)
     with _one_run_at_a_time("analyze"):
         if pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed):
-            raise typer.Exit(code=1)  # a damaged ledger or history blocked a strategy
+            raise typer.Exit(code=1)  # a damaged file blocked a strategy, or the AI didn't answer
 
 @app.command("operate")
 def operate_command(
@@ -121,10 +121,11 @@ def auto_command(
     # One lock for all three steps, so no other run can slip in between them.
     with _one_run_at_a_time("auto"):
         pipeline.run_status(symbol)
-        # Both steps run even if a damaged file blocks one strategy, so the healthy one keeps trading.
-        analyze_damaged = pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed)
-        operate_damaged = pipeline.run_operate(symbol, run_def=run_def, run_greed=run_greed)
-        if analyze_damaged or operate_damaged:
+        # Both steps run even if analyze failed in part (damaged file, AI down), so open trades
+        # are still resolved and the healthy strategy keeps trading; the run then exits 1.
+        analyze_failed = pipeline.run_analyze(symbol, run_def=run_def, run_greed=run_greed)
+        operate_failed = pipeline.run_operate(symbol, run_def=run_def, run_greed=run_greed)
+        if analyze_failed or operate_failed:
             raise typer.Exit(code=1)
 
 @app.command()
@@ -158,12 +159,18 @@ def ask(question: str):
         typer.echo(response_text)
         typer.secho("-" * 40 + "\n", fg=typer.colors.MAGENTA)
 
+    except typer.Exit:
+        # typer.Exit is an Exception too: let it through, or the broad handler below would turn it into exit 0.
+        raise
     except genai.errors.APIError as e:
         # Handle errors directly from the Gemini API
+        logging.error("Gemini API error in ask", exc_info=True)
         typer.secho(f"API Error: Failed to generate content. Please check your API key and connection. Details: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
     except Exception as e:
-        # Catch any other unexpected errors (known issue: this also catches the Exit above, so it exits 0)
+        logging.error("Unexpected error in ask", exc_info=True)
         typer.secho(f"An unexpected error occurred: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
 
 
 @app.command(name="commands", help="Displays a matrix of all executable commands and their variables.")
